@@ -21,3 +21,13 @@ state_file = "state.toml"  # relativo a este archivo
 [logging]
 dir = "logs"
 level = "info"
+
+# Opcional. Avisa (WARN) en cada ciclo si la tabla no recibió filas en los últimos window_secs.
+# La tabla y las columnas se validan UNA vez al arrancar; si no existen, el proceso termina con error.
+# El tiempo se mide con el reloj de la BD. sqlite: time_column como texto UTC "YYYY-MM-DD HH:MM:SS"
+# (p. ej. DEFAULT CURRENT_TIMESTAMP). postgres/oracle: columna timestamp/date en hora del servidor.
+# [freshness]
+# table = "events"          # tabla o esquema.tabla (identificador simple, sin comillas)
+# key_column = "id"         # llave única
+# time_column = "created_at"
+# window_secs = 120

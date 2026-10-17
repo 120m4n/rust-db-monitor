@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::db::{self, Row};
+use crate::freshness;
 
 #[derive(Serialize, Deserialize)]
 struct State {
@@ -77,6 +78,7 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
     let m = &cfg.monitor;
     let mut last_id = load_state(&m.state_file)?;
     let mut saved_id = last_id;
+    let mut table_checked = cfg.freshness.is_none();
     let mut attempt = 0u32;
     loop {
         // true = la sesión falló y hay que esperar backoff antes de reconectar
@@ -92,6 +94,14 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
                 tracing::warn!("no se pudo fijar el timeout de consulta: {e:#}");
             }
             tracing::info!("conectado");
+            // una sola vez por proceso: tabla o columnas inexistentes son un error de configuración
+            if let (false, Some(f)) = (table_checked, &cfg.freshness) {
+                match freshness::validate_table(&client, f).await {
+                    Ok(()) => table_checked = true,
+                    Err(_) if client.is_closed() => break 'session true,
+                    Err(e) => return Err(e),
+                }
+            }
             let mut tick = interval(Duration::from_secs(m.interval_secs));
             tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
             loop {
@@ -131,6 +141,25 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
                     }
                 }
                 tracing::info!("ciclo: {} filas, last_id={last_id}", rows.len());
+                if let Some(f) = &cfg.freshness {
+                    let n = tokio::select! {
+                        _ = &mut shutdown => { client.interrupt(); return stopped() },
+                        r = timeout(Duration::from_secs(m.query_timeout_secs), freshness::recent_count(&client, cfg.database.kind, f)) => match r {
+                            Ok(Ok(n)) => n,
+                            Ok(Err(e)) => { tracing::warn!("chequeo de frescura fallido: {e:#}"); break 'session true; }
+                            Err(_) => {
+                                tracing::warn!("chequeo de frescura excedió {}s", m.query_timeout_secs);
+                                client.interrupt();
+                                break 'session true;
+                            }
+                        },
+                    };
+                    if n == 0 {
+                        tracing::warn!("sin registros nuevos en `{}` durante los últimos {}s", f.table, f.window_secs);
+                    } else {
+                        tracing::info!("frescura: {n} registros en `{}` en los últimos {}s", f.table, f.window_secs);
+                    }
+                }
             }
         };
         if failed {

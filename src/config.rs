@@ -10,6 +10,29 @@ pub struct Config {
     pub monitor: Monitor,
     #[serde(default)]
     pub logging: Logging,
+    /// Chequeo opcional: avisa si la tabla no recibe filas nuevas en `window_secs`.
+    #[serde(default)]
+    pub freshness: Option<Freshness>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct Freshness {
+    /// `tabla` o `esquema.tabla`.
+    pub table: String,
+    /// Columna con llave única (no nula).
+    pub key_column: String,
+    /// Columna time/datetime con el momento de inserción.
+    pub time_column: String,
+    pub window_secs: u64,
+}
+
+/// Los nombres van sin comillas dentro del SQL: solo identificadores simples.
+fn valid_ident(s: &str) -> bool {
+    let part = |p: &str| {
+        p.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && p.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '#'))
+    };
+    s.split('.').count() <= 2 && s.split('.').all(part)
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -99,6 +122,16 @@ impl Config {
         if !self.monitor.query.contains("{last_id}") {
             bail!("monitor.query must contain the {{last_id}} placeholder");
         }
+        if let Some(f) = &self.freshness {
+            for (name, v) in [("table", &f.table), ("key_column", &f.key_column), ("time_column", &f.time_column)] {
+                if !valid_ident(v) {
+                    bail!("freshness.{name} `{v}` is not a plain identifier");
+                }
+            }
+            if f.window_secs == 0 {
+                bail!("freshness.window_secs must be >= 1");
+            }
+        }
         Ok(())
     }
 }
@@ -178,6 +211,20 @@ query = "SELECT id FROM t WHERE id > {last_id} ORDER BY id"
         assert_eq!(c.database.dbname, d.path().join("d").to_str().unwrap());
         let pg = MIN.replace("host = \"h\"\n", "");
         assert!(load(&write(d.path(), &pg)).is_err());
+    }
+
+    #[test]
+    fn freshness_is_optional_and_validated() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(load(&write(d.path(), MIN)).unwrap().freshness.is_none());
+        let sect = |t: &str, w: u64| format!(
+            "{MIN}[freshness]\ntable = \"{t}\"\nkey_column = \"id\"\ntime_column = \"created_at\"\nwindow_secs = {w}\n");
+        let ok = load(&write(d.path(), &sect("app.events", 120))).unwrap().freshness.unwrap();
+        assert_eq!((ok.table.as_str(), ok.window_secs), ("app.events", 120));
+        assert!(load(&write(d.path(), &sect("t; DROP TABLE x", 5))).is_err());
+        assert!(load(&write(d.path(), &sect("a.b.c", 5))).is_err());
+        assert!(load(&write(d.path(), &sect("1abc", 5))).is_err());
+        assert!(load(&write(d.path(), &sect("events", 0))).is_err());
     }
 
     #[test]

@@ -107,6 +107,7 @@ fn cfg(database: Database, dir: &std::path::Path) -> Config {
             state_file: dir.join("state.toml"),
         },
         logging: Logging::default(),
+        freshness: None,
     }
 }
 
@@ -233,4 +234,69 @@ async fn run_retries_state_save_until_it_succeeds() {
     mk.await.unwrap();
     r.unwrap();
     assert_eq!(load_state(&d.path().join("sub").join("state.toml")).unwrap(), 2);
+}
+
+// ---- freshness ----
+use db_monitor::config::Freshness;
+use db_monitor::freshness::{recent_count, validate_table};
+
+fn fresh() -> Freshness {
+    Freshness { table: "ev".into(), key_column: "id".into(), time_column: "ts".into(), window_secs: 60 }
+}
+
+#[tokio::test]
+async fn sqlite_freshness_counts_only_rows_inside_window() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_db(d.path(), "(1,'a')");
+    rusqlite::Connection::open(&database.dbname)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE ev(id INTEGER PRIMARY KEY, ts TEXT);
+             INSERT INTO ev VALUES (1, datetime('now','-1 hour')), (2, datetime('now','-10 seconds')), (3, datetime('now'));",
+        )
+        .unwrap();
+    let c = connect(&database).await.unwrap();
+    validate_table(&c, &fresh()).await.unwrap();
+    assert_eq!(recent_count(&c, Kind::Sqlite, &fresh()).await.unwrap(), 2);
+    let stale = Freshness { window_secs: 5, ..fresh() };
+    assert_eq!(recent_count(&c, Kind::Sqlite, &stale).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn validate_table_fails_for_missing_table_or_column() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_db(d.path(), "(1,'a')");
+    rusqlite::Connection::open(&database.dbname)
+        .unwrap()
+        .execute_batch("CREATE TABLE ev(id INTEGER PRIMARY KEY, ts TEXT);")
+        .unwrap();
+    let c = connect(&database).await.unwrap();
+    let e = validate_table(&c, &Freshness { table: "nope".into(), ..fresh() }).await.unwrap_err();
+    assert!(format!("{e:#}").contains("nope"));
+    assert!(validate_table(&c, &Freshness { time_column: "missing".into(), ..fresh() }).await.is_err());
+}
+
+#[tokio::test]
+async fn run_exits_with_error_when_freshness_table_missing() {
+    let d = tempfile::tempdir().unwrap();
+    let mut c = cfg(sqlite_db(d.path(), "(1,'a')"), d.path());
+    c.freshness = Some(Freshness { table: "nope".into(), ..fresh() });
+    let (r, took) = run_for(c, 5000).await;
+    assert!(format!("{:#}", r.unwrap_err()).contains("nope"));
+    assert!(took < Duration::from_secs(2), "took {took:?}");
+}
+
+#[tokio::test]
+async fn run_keeps_going_when_freshness_window_is_empty() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_db(d.path(), "(1,'a'),(2,'b')");
+    rusqlite::Connection::open(&database.dbname)
+        .unwrap()
+        .execute_batch("CREATE TABLE ev(id INTEGER PRIMARY KEY, ts TEXT); INSERT INTO ev VALUES (1, datetime('now','-1 day'));")
+        .unwrap();
+    let mut c = cfg(database, d.path());
+    c.freshness = Some(fresh());
+    let (r, _) = run_for(c, 2500).await;
+    r.unwrap();
+    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 2);
 }
