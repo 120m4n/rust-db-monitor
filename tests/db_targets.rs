@@ -65,7 +65,7 @@ async fn postgres_unreachable_fails_within_timeout() {
 }
 
 #[tokio::test]
-#[ignore = "needs TEST_PG_{HOST,PORT,USER,PASSWORD,NAME}"]
+#[ignore = "needs TEST_PG_{HOST,PORT,USER,PASSWORD,NAME}; run with --test-threads=1 (share table monitor_t)"]
 async fn postgres_roundtrip() {
     let c = connect(&from_env(Kind::Postgres, "TEST_PG")).await.unwrap();
     let Client::Pg(pg) = &c else { unreachable!() };
@@ -171,7 +171,7 @@ async fn run_resumes_from_persisted_state() {
 }
 
 #[tokio::test]
-#[ignore = "needs TEST_PG_*"]
+#[ignore = "needs TEST_PG_*; run with --test-threads=1 (share table monitor_t)"]
 async fn run_postgres_advances_watermark() {
     let d = tempfile::tempdir().unwrap();
     let database = from_env(Kind::Postgres, "TEST_PG");
