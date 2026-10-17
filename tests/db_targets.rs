@@ -91,3 +91,99 @@ async fn oracle_roundtrip() {
     o.commit().unwrap();
     assert_three_rows(&c).await;
 }
+
+// ---- monitor::run ----
+use db_monitor::config::{Config, Logging, Monitor};
+use db_monitor::monitor::{load_state, run};
+
+fn cfg(database: Database, dir: &std::path::Path) -> Config {
+    Config {
+        database,
+        monitor: Monitor {
+            query: "SELECT id, msg FROM monitor_t WHERE id > {last_id} ORDER BY id".into(),
+            interval_secs: 1,
+            query_timeout_secs: 5,
+            backoff_max_secs: 2,
+            state_file: dir.join("state.toml"),
+        },
+        logging: Logging::default(),
+    }
+}
+
+/// Ejecuta `run` y dispara el apagado a los `ms` ms; devuelve lo que tardó en volver.
+async fn run_for(c: Config, ms: u64) -> (anyhow::Result<()>, Duration) {
+    let t = Instant::now();
+    let r = run(c, tokio::time::sleep(Duration::from_millis(ms))).await;
+    (r, t.elapsed())
+}
+
+fn sqlite_db(dir: &std::path::Path, rows: &str) -> Database {
+    let path = dir.join("t.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(&format!(
+        "CREATE TABLE monitor_t(id, msg); INSERT INTO monitor_t VALUES {rows};"
+    ))
+    .unwrap();
+    db(Kind::Sqlite, "", None, path.to_str().unwrap())
+}
+
+#[tokio::test]
+async fn run_sqlite_advances_watermark_and_picks_up_new_rows() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_db(d.path(), "(1,'a'),(2,'b')");
+    let path = database.dbname.clone();
+    let insert = tokio::task::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_millis(1300));
+        rusqlite::Connection::open(path)
+            .unwrap()
+            .execute("INSERT INTO monitor_t VALUES (3,'c')", [])
+            .unwrap();
+    });
+    let (r, _) = run_for(cfg(database, d.path()), 3200).await;
+    insert.await.unwrap();
+    r.unwrap();
+    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 3);
+}
+
+#[tokio::test]
+async fn run_survives_non_numeric_id_without_moving_watermark() {
+    let d = tempfile::tempdir().unwrap();
+    let (r, _) = run_for(cfg(sqlite_db(d.path(), "('abc','x')"), d.path()), 2200).await;
+    r.unwrap();
+    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 0);
+}
+
+#[tokio::test]
+async fn run_shutdown_interrupts_backoff_when_db_down() {
+    let d = tempfile::tempdir().unwrap();
+    let (r, took) = run_for(cfg(db(Kind::Postgres, "127.0.0.1", Some(1), "x"), d.path()), 500).await;
+    r.unwrap();
+    assert!(took < Duration::from_secs(2), "took {took:?}");
+}
+
+#[tokio::test]
+async fn run_resumes_from_persisted_state() {
+    let d = tempfile::tempdir().unwrap();
+    db_monitor::monitor::save_state(&d.path().join("state.toml"), 2).unwrap();
+    let (r, _) = run_for(cfg(sqlite_db(d.path(), "(1,'a'),(2,'b'),(5,'e')"), d.path()), 1500).await;
+    r.unwrap();
+    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 5);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_PG_*"]
+async fn run_postgres_advances_watermark() {
+    let d = tempfile::tempdir().unwrap();
+    let database = from_env(Kind::Postgres, "TEST_PG");
+    let c = connect(&database).await.unwrap();
+    let Client::Pg(pg) = &c else { unreachable!() };
+    pg.batch_execute(
+        "DROP TABLE IF EXISTS monitor_t; CREATE TABLE monitor_t(id bigint, msg text);
+         INSERT INTO monitor_t VALUES (1,'a'),(2,'b');",
+    )
+    .await
+    .unwrap();
+    let (r, _) = run_for(cfg(database, d.path()), 1500).await;
+    r.unwrap();
+    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 2);
+}

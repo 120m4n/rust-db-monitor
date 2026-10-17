@@ -1,11 +1,13 @@
 
+use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::db::Row;
+use crate::config::Config;
+use crate::db::{self, Row};
 
 #[derive(Serialize, Deserialize)]
 struct State {
@@ -53,6 +55,76 @@ pub fn save_state(path: &Path, last_id: i64) -> anyhow::Result<()> {
     std::fs::write(&tmp, toml::to_string(&State { last_id })?)
         .with_context(|| format!("cannot write {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))
+}
+
+/// Bucle principal: conecta (con backoff), consulta cada `interval_secs` y persiste la marca de agua.
+/// Solo devuelve `Err` si `state_file` es ilegible/corrupto; vuelve `Ok` al disparar `shutdown`.
+pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Result<()> {
+    use tokio::time::{interval, sleep, timeout, MissedTickBehavior};
+
+    tokio::pin!(shutdown);
+    let m = &cfg.monitor;
+    let mut last_id = load_state(&m.state_file)?;
+    let mut attempt = 0u32;
+    loop {
+        // true = la sesión falló y hay que esperar backoff antes de reconectar
+        let failed: bool = 'session: {
+            let client = tokio::select! {
+                _ = &mut shutdown => return stopped(),
+                r = db::connect(&cfg.database) => match r {
+                    Ok(c) => c,
+                    Err(e) => { tracing::warn!("conexión fallida (intento {}): {e:#}", attempt + 1); break 'session true; }
+                },
+            };
+            if let Err(e) = client.set_query_timeout(Duration::from_secs(m.query_timeout_secs)) {
+                tracing::warn!("no se pudo fijar el timeout de consulta: {e:#}");
+            }
+            tracing::info!("conectado");
+            let mut tick = interval(Duration::from_secs(m.interval_secs));
+            tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            loop {
+                tokio::select! { _ = &mut shutdown => return stopped(), _ = tick.tick() => {} }
+                if client.is_closed() {
+                    tracing::warn!("conexión cerrada");
+                    break 'session true;
+                }
+                let sql = render_query(&m.query, last_id);
+                let rows = tokio::select! {
+                    _ = &mut shutdown => return stopped(),
+                    r = timeout(Duration::from_secs(m.query_timeout_secs), db::fetch(&client, &sql)) => match r {
+                        Ok(Ok(rows)) => rows,
+                        Ok(Err(e)) => { tracing::warn!("consulta fallida: {e:#}"); break 'session true; }
+                        Err(_) => { tracing::warn!("consulta excedió {}s", m.query_timeout_secs); break 'session true; }
+                    },
+                };
+                attempt = 0;
+                for row in &rows {
+                    tracing::info!(?row, "nuevo registro");
+                }
+                match next_watermark(&rows, last_id) {
+                    Ok(next) if next != last_id => {
+                        last_id = next;
+                        if let Err(e) = save_state(&m.state_file, last_id) {
+                            tracing::error!("no se pudo guardar el estado: {e:#}");
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::error!("marca de agua no avanzó: {e:#}"),
+                }
+                tracing::info!("ciclo: {} filas, last_id={last_id}", rows.len());
+            }
+        };
+        if failed {
+            let wait = backoff(attempt, m.backoff_max_secs);
+            attempt = attempt.saturating_add(1);
+            tokio::select! { _ = &mut shutdown => return stopped(), _ = sleep(wait) => {} }
+        }
+    }
+}
+
+fn stopped() -> anyhow::Result<()> {
+    tracing::info!("apagado");
+    Ok(())
 }
 
 #[cfg(test)]
