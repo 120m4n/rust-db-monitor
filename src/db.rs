@@ -14,7 +14,7 @@ pub type Row = BTreeMap<String, Option<String>>;
 
 pub enum Client {
     Pg(tokio_postgres::Client),
-    Sqlite(Arc<Mutex<rusqlite::Connection>>),
+    Sqlite(Arc<Mutex<rusqlite::Connection>>, rusqlite::InterruptHandle),
     Oracle(Arc<oracle::Connection>),
 }
 
@@ -27,6 +27,17 @@ impl Client {
         }
     }
 
+    /// Aborta la consulta en curso (sqlite/oracle corren en hilos bloqueantes que un `drop` del future no detiene).
+    pub fn interrupt(&self) {
+        match self {
+            Client::Sqlite(_, h) => h.interrupt(),
+            Client::Oracle(c) => {
+                let _ = c.break_execution();
+            }
+            Client::Pg(_) => {}
+        }
+    }
+
     /// Oracle corre en un hilo bloqueante que `tokio::time::timeout` no cancela: el timeout va en el driver.
     pub fn set_query_timeout(&self, d: Duration) -> anyhow::Result<()> {
         if let Client::Oracle(c) = self {
@@ -34,6 +45,14 @@ impl Client {
         }
         Ok(())
     }
+}
+
+/// Inserta la columna; un nombre repetido (p. ej. `SELECT a.id, b.id`) haría que una pise a la otra.
+fn put(row: &mut Row, name: String, v: Option<String>) -> anyhow::Result<()> {
+    if row.insert(name.clone(), v).is_some() {
+        return Err(anyhow!("duplicate column name `{name}` in query result"));
+    }
+    Ok(())
 }
 
 pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
@@ -47,7 +66,11 @@ pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
                 .password(&cfg.password)
                 .dbname(&cfg.dbname)
                 .connect_timeout(timeout);
-            let (client, conn) = pg.connect(NoTls).await.context("postgres connect failed")?;
+            // connect_timeout solo cubre el TCP; el arranque/auth puede colgarse con un servidor que no responde
+            let (client, conn) = tokio::time::timeout(timeout, pg.connect(NoTls))
+                .await
+                .map_err(|_| anyhow!("postgres connect timed out"))?
+                .context("postgres connect failed")?;
             tokio::spawn(async move {
                 if let Err(e) = conn.await {
                     tracing::warn!("postgres connection ended: {e}");
@@ -63,7 +86,8 @@ pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
             )
             .with_context(|| format!("cannot open sqlite db {}", cfg.dbname))?;
             conn.busy_timeout(timeout)?;
-            Ok(Client::Sqlite(Arc::new(Mutex::new(conn))))
+            let handle = conn.get_interrupt_handle();
+            Ok(Client::Sqlite(Arc::new(Mutex::new(conn)), handle))
         }
         Kind::Oracle => {
             let (user, pw) = (cfg.user.clone(), cfg.password.clone());
@@ -80,22 +104,20 @@ pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
 
 pub async fn fetch(client: &Client, sql: &str) -> anyhow::Result<Vec<Row>> {
     match client {
-        Client::Pg(c) => Ok(c
-            .simple_query(sql)
-            .await?
-            .into_iter()
-            .filter_map(|m| match m {
-                SimpleQueryMessage::Row(r) => Some(
-                    r.columns()
-                        .iter()
-                        .enumerate()
-                        .map(|(i, col)| (col.name().to_string(), r.get(i).map(String::from)))
-                        .collect(),
-                ),
-                _ => None,
-            })
-            .collect()),
-        Client::Sqlite(c) => {
+        Client::Pg(c) => {
+            let mut out = Vec::new();
+            for m in c.simple_query(sql).await? {
+                if let SimpleQueryMessage::Row(r) = m {
+                    let mut row = Row::new();
+                    for (i, col) in r.columns().iter().enumerate() {
+                        put(&mut row, col.name().to_string(), r.get(i).map(String::from))?;
+                    }
+                    out.push(row);
+                }
+            }
+            Ok(out)
+        }
+        Client::Sqlite(c, _) => {
             let (c, sql) = (c.clone(), sql.to_string());
             tokio::task::spawn_blocking(move || {
                 let conn = c.lock().map_err(|_| anyhow!("sqlite mutex poisoned"))?;
@@ -113,7 +135,7 @@ pub async fn fetch(client: &Client, sql: &str) -> anyhow::Result<Vec<Row>> {
                             ValueRef::Text(t) => Some(String::from_utf8_lossy(t).into_owned()),
                             ValueRef::Blob(b) => Some(format!("<blob {} bytes>", b.len())),
                         };
-                        row.insert(n.clone(), v);
+                        put(&mut row, n.clone(), v)?;
                     }
                     out.push(row);
                 }
@@ -132,7 +154,7 @@ pub async fn fetch(client: &Client, sql: &str) -> anyhow::Result<Vec<Row>> {
                     let r = r?;
                     let mut row = Row::new();
                     for (i, n) in names.iter().enumerate() {
-                        row.insert(n.clone(), r.get::<usize, Option<String>>(i)?);
+                        put(&mut row, n.clone(), r.get::<usize, Option<String>>(i)?)?;
                     }
                     out.push(row);
                 }

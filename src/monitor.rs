@@ -22,16 +22,22 @@ pub fn render_query(template: &str, last_id: i64) -> String {
 pub fn next_watermark(rows: &[Row], current: i64) -> anyhow::Result<i64> {
     let mut max = current;
     for r in rows {
-        let id = r
+        let raw = r
             .get("id")
             .and_then(|v| v.as_deref())
-            .ok_or_else(|| anyhow!("row without a non-null `id` column: {r:?}"))?
-            .trim()
-            .parse::<i64>()
-            .with_context(|| format!("`id` is not an integer: {r:?}"))?;
-        max = max.max(id);
+            .ok_or_else(|| anyhow!("row without a non-null `id` column: {r:?}"))?;
+        max = max.max(parse_id(raw).ok_or_else(|| anyhow!("`id` is not an integer: {r:?}"))?);
     }
     Ok(max)
+}
+
+/// Entero, o decimal sin parte fraccionaria (`numeric(10,2)` llega como "5.00").
+fn parse_id(s: &str) -> Option<i64> {
+    let s = s.trim();
+    s.parse::<i64>().ok().or_else(|| {
+        let f: f64 = s.parse().ok()?;
+        (f.fract() == 0.0 && f.abs() < 9e15).then(|| f as i64)
+    })
 }
 
 pub fn backoff(attempt: u32, max_secs: u64) -> Duration {
@@ -52,8 +58,13 @@ pub fn load_state(path: &Path) -> anyhow::Result<i64> {
 /// Escritura atómica: archivo temporal + rename.
 pub fn save_state(path: &Path, last_id: i64) -> anyhow::Result<()> {
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, toml::to_string(&State { last_id })?)
-        .with_context(|| format!("cannot write {}", tmp.display()))?;
+    let write = || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(toml::to_string(&State { last_id }).map_err(std::io::Error::other)?.as_bytes())?;
+        f.sync_all() // sin esto, un corte de luz deja state.toml vacío tras el rename
+    };
+    write().with_context(|| format!("cannot write {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))
 }
 
@@ -65,6 +76,7 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
     tokio::pin!(shutdown);
     let m = &cfg.monitor;
     let mut last_id = load_state(&m.state_file)?;
+    let mut saved_id = last_id;
     let mut attempt = 0u32;
     loop {
         // true = la sesión falló y hay que esperar backoff antes de reconectar
@@ -90,26 +102,33 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
                 }
                 let sql = render_query(&m.query, last_id);
                 let rows = tokio::select! {
-                    _ = &mut shutdown => return stopped(),
+                    _ = &mut shutdown => { client.interrupt(); return stopped() },
                     r = timeout(Duration::from_secs(m.query_timeout_secs), db::fetch(&client, &sql)) => match r {
                         Ok(Ok(rows)) => rows,
                         Ok(Err(e)) => { tracing::warn!("consulta fallida: {e:#}"); break 'session true; }
-                        Err(_) => { tracing::warn!("consulta excedió {}s", m.query_timeout_secs); break 'session true; }
+                        Err(_) => {
+                            tracing::warn!("consulta excedió {}s", m.query_timeout_secs);
+                            client.interrupt();
+                            break 'session true;
+                        }
                     },
                 };
                 attempt = 0;
-                for row in &rows {
-                    tracing::info!(?row, "nuevo registro");
-                }
+                // se loguea solo lo validado: un lote con id inválido no se re-loguea cada ciclo
                 match next_watermark(&rows, last_id) {
-                    Ok(next) if next != last_id => {
-                        last_id = next;
-                        if let Err(e) = save_state(&m.state_file, last_id) {
-                            tracing::error!("no se pudo guardar el estado: {e:#}");
+                    Ok(next) => {
+                        for row in &rows {
+                            tracing::info!(?row, "nuevo registro");
                         }
+                        last_id = next;
                     }
-                    Ok(_) => {}
                     Err(e) => tracing::error!("marca de agua no avanzó: {e:#}"),
+                }
+                if saved_id != last_id {
+                    match save_state(&m.state_file, last_id) {
+                        Ok(()) => saved_id = last_id,
+                        Err(e) => tracing::error!("no se pudo guardar el estado (se reintenta): {e:#}"),
+                    }
                 }
                 tracing::info!("ciclo: {} filas, last_id={last_id}", rows.len());
             }
@@ -156,6 +175,12 @@ mod tests {
         assert!(next_watermark(&[row(None)], 0).is_err());
         assert!(next_watermark(&[row(Some("abc"))], 0).is_err());
         assert!(next_watermark(&[Row::new()], 0).is_err());
+    }
+
+    #[test]
+    fn watermark_accepts_whole_decimals() {
+        assert_eq!(next_watermark(&[row(Some("5.00"))], 0).unwrap(), 5);
+        assert!(next_watermark(&[row(Some("5.5"))], 0).is_err());
     }
 
     #[test]

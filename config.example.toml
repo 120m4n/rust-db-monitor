@@ -10,6 +10,8 @@ connect_timeout_secs = 10
 [monitor]
 # DEBE: devolver columna `id` entera, contener {last_id}, ORDER BY id y acotar filas.
 #   postgres/sqlite: ... LIMIT 1000        oracle (12c+): ... FETCH FIRST 1000 ROWS ONLY
+# OJO: con ids de secuencia y transacciones concurrentes, una fila con id menor puede confirmarse
+#   después de que la marca de agua pasó de largo y NO se verá nunca (ids no monótonos).
 query = "SELECT id, message FROM events WHERE id > {last_id} ORDER BY id LIMIT 1000"
 interval_secs = 60
 query_timeout_secs = 30

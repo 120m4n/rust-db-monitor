@@ -4,8 +4,15 @@ use std::process::ExitCode;
 use db_monitor::{config, monitor};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+    let code = rt.block_on(app());
+    // sin esto, Drop del runtime espera sin límite a un spawn_blocking colgado (consulta lenta)
+    rt.shutdown_timeout(std::time::Duration::from_secs(2));
+    code
+}
+
+async fn app() -> ExitCode {
     // Por defecto junto al .exe: un servicio de Windows no arranca en el directorio del programa.
     let path = std::env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| {
         let exe = std::env::current_exe().unwrap_or_default();

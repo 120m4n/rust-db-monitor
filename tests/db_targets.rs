@@ -187,3 +187,50 @@ async fn run_postgres_advances_watermark() {
     r.unwrap();
     assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 2);
 }
+
+// ---- fixes tras la revisión final ----
+#[tokio::test]
+async fn postgres_connect_that_accepts_tcp_but_never_answers_times_out() {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let t = Instant::now();
+    assert!(connect(&db(Kind::Postgres, "127.0.0.1", Some(port), "x")).await.is_err());
+    assert!(t.elapsed() < Duration::from_secs(5));
+}
+
+#[tokio::test]
+async fn fetch_rejects_duplicate_column_names() {
+    let d = tempfile::tempdir().unwrap();
+    let c = connect(&sqlite_db(d.path(), "(1,'a')")).await.unwrap();
+    assert!(fetch(&c, "SELECT 1 AS id, 2 AS id").await.is_err());
+}
+
+#[tokio::test]
+async fn interrupt_aborts_slow_sqlite_query() {
+    let d = tempfile::tempdir().unwrap();
+    let c = std::sync::Arc::new(connect(&sqlite_db(d.path(), "(1,'a')")).await.unwrap());
+    let c2 = c.clone();
+    let slow = tokio::spawn(async move {
+        fetch(&c2, "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c").await
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    c.interrupt();
+    let r = tokio::time::timeout(Duration::from_secs(2), slow).await.expect("query still running");
+    assert!(r.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn run_retries_state_save_until_it_succeeds() {
+    let d = tempfile::tempdir().unwrap();
+    let mut c = cfg(sqlite_db(d.path(), "(1,'a'),(2,'b')"), d.path());
+    c.monitor.state_file = d.path().join("sub").join("state.toml"); // el dir no existe aún
+    let sub = d.path().join("sub");
+    let mk = tokio::task::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_millis(1300));
+        std::fs::create_dir(sub).unwrap();
+    });
+    let (r, _) = run_for(c, 3300).await;
+    mk.await.unwrap();
+    r.unwrap();
+    assert_eq!(load_state(&d.path().join("sub").join("state.toml")).unwrap(), 2);
+}
