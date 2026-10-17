@@ -1,0 +1,21 @@
+[database]
+kind = "postgres"          # postgres | sqlite | oracle
+host = "127.0.0.1"         # no se usa con sqlite
+# port = 5432              # postgres 5432, oracle 1521
+user = "monitor"
+password = ""              # mejor: variable de entorno DB_PASSWORD (tiene prioridad)
+dbname = "mydb"            # postgres: base | oracle: service name | sqlite: ruta del archivo
+connect_timeout_secs = 10
+
+[monitor]
+# DEBE: devolver columna `id` entera, contener {last_id}, ORDER BY id y acotar filas.
+#   postgres/sqlite: ... LIMIT 1000        oracle (12c+): ... FETCH FIRST 1000 ROWS ONLY
+query = "SELECT id, message FROM events WHERE id > {last_id} ORDER BY id LIMIT 1000"
+interval_secs = 60
+query_timeout_secs = 30
+backoff_max_secs = 300
+state_file = "state.toml"  # relativo a este archivo
+
+[logging]
+dir = "logs"
+level = "info"
