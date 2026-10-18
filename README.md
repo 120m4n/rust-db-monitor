@@ -159,3 +159,25 @@ cargo test --test db_targets -- --ignored --test-threads=1   # Postgres y Oracle
 ```
 
 Los tests de Postgres y Oracle leen `TEST_PG_*` y `TEST_ORA_*` (`HOST`, `PORT`, `USER`, `PASSWORD`, `NAME`). El CI (`.github/workflows/ci.yml`) compila y testea en `windows-latest` y publica `db-monitor.exe`.
+
+## TODO
+
+**Pendiente de verificar**
+- [ ] Ejecutar en Windows 10: medir RAM (< 100 MB) y CPU (< 5 %) en operación continua, y revisar la consola (colores ANSI en `cmd.exe`).
+- [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
+
+**Funcionalidad**
+- [ ] Ejecutar como Windows Service o con icono de bandeja (`monitor::run(cfg, shutdown)` ya está desacoplado de la consola).
+- [ ] TLS para PostgreSQL.
+- [ ] Apagado ordenado al cerrar la ventana de consola (`tokio::signal::windows::ctrl_close`).
+- [ ] Ids no monótonos: consultar con un margen de retraso sobre la marca de agua para no perder filas confirmadas tarde.
+- [ ] Detectar UPDATE y DELETE (hoy solo registros nuevos).
+
+**Robustez**
+- [ ] Rotación con límite de archivos de log (`max_log_files`); hoy no se borran solos.
+- [ ] Validar `query_timeout_secs < interval_secs` y exigir un tope de filas en `query`.
+- [ ] No mostrar la línea del password en los errores de sintaxis de `config.toml`.
+- [ ] Abrir SQLite en solo lectura y tratar un archivo inexistente como error de configuración.
+- [ ] Keepalives de TCP más cortos en PostgreSQL (hoy tardan 2 h en detectar una conexión muerta).
+- [ ] Hacer que `non_blocking` no pierda líneas de log en ráfagas.
+- [ ] Usar tablas distintas en los tests de Postgres para poder ejecutarlos en paralelo.
