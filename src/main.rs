@@ -88,7 +88,13 @@ fn main() {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
         // Ctrl-C solo sirve con terminal (desarrollo); en Windows se sale con el menú
         let stop = async {
-            tokio::select! { _ = stop_rx => {}, _ = tokio::signal::ctrl_c() => {} }
+            // si no se puede registrar Ctrl-C, ese brazo no debe terminar el programa
+            let ctrl_c = async {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    std::future::pending::<()>().await
+                }
+            };
+            tokio::select! { _ = stop_rx => {}, _ = ctrl_c => {} }
         };
         let r = rt.block_on(monitor::run(monitor_cfg, stop, |c| {
             let _ = proxy.send_event(UiEvent::Check(c));

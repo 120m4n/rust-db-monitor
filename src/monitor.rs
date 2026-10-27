@@ -21,7 +21,7 @@ pub fn backoff(attempt: u32, max_secs: u64) -> Duration {
 
 /// Bucle principal: conecta (con backoff), valida la tabla una vez y cuenta filas recientes cada `interval_secs`.
 /// Solo devuelve `Err` si la tabla o sus columnas no sirven; vuelve `Ok` al disparar `shutdown`.
-/// `on_check` recibe cada resultado; nunca se llama antes de devolver `Err`.
+/// `on_check` recibe cada resultado; `Fresh`/`Stale` solo después de validar la tabla.
 pub async fn run(
     cfg: Config,
     shutdown: impl Future<Output = ()>,
@@ -50,10 +50,27 @@ pub async fn run(
             tracing::info!("conectado");
             // una sola vez por proceso: tabla o columnas inexistentes son un error de configuración
             if !table_checked {
-                match freshness::validate_table(&client, f).await {
-                    Ok(()) => table_checked = true,
-                    Err(_) if client.is_closed() => break 'session true,
-                    Err(e) => return Err(e),
+                let r = tokio::select! {
+                    _ = &mut shutdown => { client.interrupt(); return stopped() },
+                    r = timeout(query_timeout, freshness::validate_table(&client, f)) => r,
+                };
+                match r {
+                    Ok(Ok(())) => table_checked = true,
+                    // fatal solo si la conexión sigue viva: Oracle no sabe decir si se cerró
+                    Ok(Err(e)) => {
+                        let alive = !client.is_closed()
+                            && timeout(query_timeout, db::probe(&client)).await.unwrap_or(false);
+                        if alive {
+                            return Err(e);
+                        }
+                        tracing::warn!("validación de la tabla fallida, se reintenta: {e:#}");
+                        break 'session true;
+                    }
+                    Err(_) => {
+                        tracing::warn!("validación de la tabla excedió {}s", f.query_timeout_secs);
+                        client.interrupt();
+                        break 'session true;
+                    }
                 }
             }
             let mut tick = interval(Duration::from_secs(f.interval_secs));

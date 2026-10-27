@@ -126,7 +126,6 @@ fn sqlite_db(dir: &std::path::Path, rows: &str) -> Database {
 
 #[tokio::test]
 async fn run_shutdown_interrupts_backoff_when_db_down() {
-    let d = tempfile::tempdir().unwrap();
     let (r, took) = run_for(cfg(db(Kind::Postgres, "127.0.0.1", Some(1), "x")), 500).await;
     r.unwrap();
     assert!(took < Duration::from_secs(2), "took {took:?}");
@@ -281,4 +280,42 @@ async fn run_fails_late_when_table_missing_after_outage() {
     create.await.unwrap();
     assert!(format!("{:#}", r.unwrap_err()).contains("ev"));
     assert!(checks.contains(&Check::Failed), "{checks:?}");
+}
+
+// ---- revisión final: validación colgada ----
+/// Bloquea la BD con un lock exclusivo durante `ms` ms (las lecturas esperan `busy_timeout`).
+fn hold_exclusive(path: String, ms: u64) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        let c = rusqlite::Connection::open(path).unwrap();
+        c.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+        std::thread::sleep(Duration::from_millis(ms));
+        c.execute_batch("COMMIT;").unwrap();
+    })
+}
+
+#[tokio::test]
+async fn run_shutdown_interrupts_hung_validation() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_with_ev(d.path(), "(1, datetime('now'))");
+    let lock = hold_exclusive(database.dbname.clone(), 2500);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (r, took) = run_for(cfg(database), 500).await;
+    lock.await.unwrap();
+    r.unwrap();
+    assert!(took < Duration::from_millis(1500), "took {took:?}");
+}
+
+#[tokio::test]
+async fn run_retries_when_validation_times_out() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_with_ev(d.path(), "(1, datetime('now'))");
+    let lock = hold_exclusive(database.dbname.clone(), 2000);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut c = cfg(database);
+    c.freshness.query_timeout_secs = 1; // menor que busy_timeout (3 s)
+    let (r, checks) = run_collect(c, 6000).await;
+    lock.await.unwrap();
+    r.unwrap();
+    assert_eq!(checks.first(), Some(&Check::Failed), "{checks:?}");
+    assert!(checks.contains(&Check::Fresh { n: 1 }), "{checks:?}");
 }

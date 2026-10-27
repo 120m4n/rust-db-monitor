@@ -102,6 +102,15 @@ pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
     }
 }
 
+/// true si la conexión responde a una consulta trivial.
+pub async fn probe(client: &Client) -> bool {
+    let sql = match client {
+        Client::Oracle(_) => "SELECT 1 FROM dual",
+        _ => "SELECT 1",
+    };
+    fetch(client, sql).await.is_ok()
+}
+
 pub async fn fetch(client: &Client, sql: &str) -> anyhow::Result<Vec<Row>> {
     match client {
         Client::Pg(c) => {
