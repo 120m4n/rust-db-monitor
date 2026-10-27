@@ -44,10 +44,15 @@ pub fn icon(light: Light) -> tray_icon::Icon {
 }
 
 /// Notificación del sistema; si falla (permisos, modo concentración) solo se loguea.
+/// En su propio hilo: en macOS `show()` es bloqueante y congelaría el bucle de eventos.
 pub fn toast(title: &str, body: &str) {
-    if let Err(e) = notify_rust::Notification::new().summary(title).body(body).show() {
-        tracing::warn!("no se pudo mostrar la notificación: {e}");
-    }
+    let mut n = notify_rust::Notification::new();
+    n.summary(title).body(body);
+    std::thread::spawn(move || {
+        if let Err(e) = n.show() {
+            tracing::warn!("no se pudo mostrar la notificación: {e}");
+        }
+    });
 }
 
 pub fn open_dir(path: &Path) {

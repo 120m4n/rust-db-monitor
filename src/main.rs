@@ -1,33 +1,54 @@
-use std::path::PathBuf;
-use std::process::ExitCode;
+// Sin consola en Windows: solo el icono de la bandeja.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
-use db_monitor::{config, monitor};
+use std::path::{Path, PathBuf};
+use std::process::exit;
+use std::time::{Duration, Instant};
+
+use db_monitor::alerts::{Action, Alerts, Light};
+use db_monitor::monitor::{self, Check};
+use db_monitor::{config, desktop};
+use tao::event::{Event, StartCause};
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::{TrayIcon, TrayIconBuilder};
 
-fn main() -> ExitCode {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
-    let code = rt.block_on(app());
-    // sin esto, Drop del runtime espera sin límite a un spawn_blocking colgado (consulta lenta)
-    rt.shutdown_timeout(std::time::Duration::from_secs(2));
-    code
+enum UiEvent {
+    Check(Check),
+    Menu(MenuId),
+    /// El hilo del monitor terminó: `Err` es un error fatal (tabla inválida).
+    Stopped(Result<(), String>),
 }
 
-async fn app() -> ExitCode {
-    // Por defecto junto al .exe: un servicio de Windows no arranca en el directorio del programa.
+fn clock() -> String {
+    chrono::Local::now().format("%H:%M").to_string()
+}
+
+fn fatal(msg: &str) -> ! {
+    desktop::error_box(msg);
+    exit(1)
+}
+
+fn main() {
+    // Por defecto junto al .exe: lanzado con doble clic no arranca en el directorio del programa.
     let path = std::env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| {
         let exe = std::env::current_exe().unwrap_or_default();
         exe.with_file_name("config.toml")
     });
-    let cfg = match config::load(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{e:#}");
-            return ExitCode::FAILURE;
+    let cfg = config::load(&path).unwrap_or_else(|e| fatal(&format!("{e:#}")));
+    // se suelta al salir del proceso (exit no corre Drop, pero el SO libera el lock)
+    let _lock = match desktop::acquire_lock(&path.parent().unwrap_or(Path::new(".")).join("db-monitor.lock")) {
+        Ok(Some(f)) => f,
+        Ok(None) => {
+            desktop::info_box("db-monitor ya está en ejecución");
+            exit(0)
         }
+        Err(e) => fatal(&format!("{e:#}")),
     };
 
-    // el guard debe vivir hasta el final de main para vaciar el log al apagar
-    let (file, _guard) =
+    // el guard debe soltarse antes de exit para vaciar el log
+    let (file, guard) =
         tracing_appender::non_blocking(tracing_appender::rolling::daily(&cfg.logging.dir, "db-monitor.log"));
     tracing_subscriber::registry()
         .with(EnvFilter::try_new(&cfg.logging.level).unwrap_or_else(|_| EnvFilter::new("info")))
@@ -35,7 +56,7 @@ async fn app() -> ExitCode {
         .with(fmt::layer())
         .init();
 
-    let db = &cfg.database;
+    let (db, f) = (&cfg.database, &cfg.freshness);
     tracing::info!(
         "db-monitor v{} | {:?} {}{}{} | `{}` cada {}s, ventana {}s",
         env!("CARGO_PKG_VERSION"),
@@ -43,19 +64,117 @@ async fn app() -> ExitCode {
         db.host,
         if db.host.is_empty() { "" } else { "/" },
         db.dbname,
-        cfg.freshness.table,
-        cfg.freshness.interval_secs,
-        cfg.freshness.window_secs,
+        f.table,
+        f.interval_secs,
+        f.window_secs,
     );
 
-    let stop = async {
-        let _ = tokio::signal::ctrl_c().await;
-    };
-    match monitor::run(cfg, stop, |_| {}).await {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            tracing::error!("{e:#}");
-            ExitCode::FAILURE
-        }
+    #[allow(unused_mut)]
+    let mut event_loop = EventLoopBuilder::<UiEvent>::with_user_event().build();
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
     }
+    let menu_proxy = std::sync::Mutex::new(event_loop.create_proxy());
+    MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
+        let _ = menu_proxy.lock().map(|p| p.send_event(UiEvent::Menu(e.id)));
+    }));
+
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let proxy = event_loop.create_proxy();
+    let monitor_cfg = cfg.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+        // Ctrl-C solo sirve con terminal (desarrollo); en Windows se sale con el menú
+        let stop = async {
+            tokio::select! { _ = stop_rx => {}, _ = tokio::signal::ctrl_c() => {} }
+        };
+        let r = rt.block_on(monitor::run(monitor_cfg, stop, |c| {
+            let _ = proxy.send_event(UiEvent::Check(c));
+        }));
+        // sin esto, Drop del runtime espera sin límite a un spawn_blocking colgado (consulta lenta)
+        rt.shutdown_timeout(Duration::from_secs(2));
+        let _ = proxy.send_event(UiEvent::Stopped(r.map_err(|e| format!("{e:#}"))));
+    });
+
+    let mut alerts = Alerts::new(&f.table, f.window_secs, Instant::now(), &clock());
+    let mut warning = desktop::Warning::new();
+    let status_item = MenuItem::new(alerts.status(), false, None);
+    let logs_item = MenuItem::new("Abrir logs", true, None);
+    let quit_item = MenuItem::new("Salir", true, None);
+    let menu = Menu::new();
+    menu.append_items(&[&status_item, &PredefinedMenuItem::separator(), &logs_item, &quit_item])
+        .unwrap_or_else(|e| fatal(&format!("no se pudo crear el menú: {e}")));
+    let log_dir = cfg.logging.dir.clone();
+    let mut tray: Option<TrayIcon> = None;
+    let mut stop_tx = Some(stop_tx);
+    let mut guard = Some(guard);
+
+    event_loop.run(move |event, _, control_flow| {
+        let actions = match event {
+            // en macOS el icono no puede crearse antes de que arranque el bucle
+            Event::NewEvents(StartCause::Init) => {
+                let t = TrayIconBuilder::new()
+                    .with_menu(Box::new(menu.clone()))
+                    .with_tooltip(alerts.status())
+                    .with_icon(desktop::icon(Light::Yellow))
+                    .build()
+                    .unwrap_or_else(|e| fatal(&format!("no se pudo crear el icono de bandeja: {e}")));
+                tray = Some(t);
+                Vec::new()
+            }
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => alerts.on_tick(Instant::now()),
+            Event::UserEvent(UiEvent::Check(c)) => alerts.on_check(c, Instant::now(), &clock()),
+            Event::UserEvent(UiEvent::Menu(id)) => {
+                if id == *logs_item.id() {
+                    desktop::open_dir(&log_dir);
+                } else if id == *quit_item.id() {
+                    if let Some(tx) = stop_tx.take() {
+                        let _ = tx.send(());
+                    }
+                }
+                Vec::new()
+            }
+            Event::UserEvent(UiEvent::Stopped(r)) => {
+                warning.close();
+                tray = None;
+                let code = match r {
+                    Ok(()) => 0,
+                    Err(msg) => {
+                        tracing::error!("{msg}");
+                        desktop::error_box(&msg);
+                        1
+                    }
+                };
+                drop(guard.take());
+                exit(code);
+            }
+            _ => return,
+        };
+        for a in actions {
+            match a {
+                Action::SetLight(l) => {
+                    if let Some(t) = &tray {
+                        let _ = t.set_icon(Some(desktop::icon(l)));
+                    }
+                }
+                Action::Toast { title, body } => {
+                    tracing::info!("aviso: {title} · {body}");
+                    desktop::toast(&title, &body);
+                }
+                Action::ShowWarning(text) => warning.show(&text),
+                Action::CloseWarning => warning.close(),
+            }
+        }
+        let status = alerts.status();
+        status_item.set_text(&status);
+        if let Some(t) = &tray {
+            let _ = t.set_tooltip(Some(&status));
+        }
+        *control_flow = match alerts.deadline() {
+            Some(d) => ControlFlow::WaitUntil(d),
+            None => ControlFlow::Wait,
+        };
+    });
 }

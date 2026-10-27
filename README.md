@@ -8,10 +8,25 @@ Perro guardián (Rust, pensado para Windows 10/11) que cada N segundos comprueba
 db-monitor.exe [ruta\a\config.toml]
 ```
 
-- Sin argumento busca `config.toml` **junto al `.exe`** (un servicio de Windows no arranca en la carpeta del programa).
-- `logs/` se crea relativos a la carpeta del `config.toml`, salvo que pongas rutas absolutas.
+- Se lanza a mano (doble clic). No abre consola: solo aparece un icono en la bandeja del sistema (en macOS, en la barra de menú).
+- Sin argumento busca `config.toml` **junto al `.exe`**.
+- `logs/` se crea relativo a la carpeta del `config.toml`, salvo que pongas rutas absolutas.
 - Plantilla: copia `config.example.toml` a `config.toml`.
-- Si la config es inválida el proceso sale con código 1 y explica el motivo.
+- Si la config es inválida, muestra una ventana de error con el motivo y sale con código 1.
+- Una sola instancia: si ya hay una corriendo (archivo `db-monitor.lock` junto al `config.toml`), avisa "db-monitor ya está en ejecución" y sale.
+
+## Avisos
+
+| Icono | Significa | Al entrar en ese estado |
+|---|---|---|
+| Verde | La tabla recibe datos | Toast si venía de rojo o de una caída de conexión |
+| Rojo | Conectado, pero sin filas en `window_secs` | Toast + ventana de advertencia |
+| Amarillo | Sin conexión a la base durante más de 60 s (también "Conectando…" al arrancar) | Toast |
+
+- Los toasts salen **solo al cambiar de estado**, no en cada ciclo.
+- Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Se cierra sola cuando vuelven los datos.
+- Un corte de conexión de menos de 60 s no cambia el icono ni avisa; queda solo en el log.
+- Menú del icono: estado actual (también como tooltip), **Abrir logs** (abre la carpeta) y **Salir**.
 
 ## Configuración (`config.toml`)
 
@@ -126,14 +141,14 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 
 - **Reconexión:** si falla la conexión o una consulta, espera con backoff exponencial (hasta `backoff_max_secs`) y reintenta. Nunca termina por errores de red o de BD.
 - **Errores fatales (salen con código 1):** config inválida, tabla o columnas de `[freshness]` inexistentes.
-- **Apagado:** Ctrl-C cierra la conexión, vacía los logs y sale con código 0 (máximo ~2 s).
+- **Apagado:** menú **Salir** (o Ctrl-C si se lanzó desde una terminal): cierra la conexión, vacía los logs y sale con código 0 (máximo ~2 s).
 
 ## Limitaciones conocidas
 
 - Solo detecta registros **nuevos** (por `time_column`), no UPDATE ni DELETE.
 - Sin TLS en PostgreSQL.
 - Un error de sintaxis en `config.toml` puede mostrar por pantalla la línea afectada, incluida la del password si está ahí.
-- El cierre de la ventana de consola no dispara el apagado ordenado (solo Ctrl-C / Ctrl-Break).
+- En Windows, el remitente del toast puede aparecer como un programa genérico (no hay instalador que registre un AppUserModelID propio).
 
 ## Desarrollo
 
@@ -147,13 +162,12 @@ Los tests de Postgres y Oracle leen `TEST_PG_*` y `TEST_ORA_*` (`HOST`, `PORT`, 
 ## TODO
 
 **Pendiente de verificar**
-- [ ] Ejecutar en Windows 10: medir RAM (< 100 MB) y CPU (< 5 %) en operación continua, y revisar la consola (colores ANSI en `cmd.exe`).
+- [ ] Ejecutar en Windows 11: icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
 - [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
 
 **Funcionalidad**
-- [ ] Ejecutar como Windows Service o con icono de bandeja (`monitor::run(cfg, shutdown)` ya está desacoplado de la consola).
+- [ ] Arrancar con el sistema (acceso directo en Inicio o tarea programada).
 - [ ] TLS para PostgreSQL.
-- [ ] Apagado ordenado al cerrar la ventana de consola (`tokio::signal::windows::ctrl_close`).
 - [ ] Detectar UPDATE y DELETE (hoy solo registros nuevos).
 
 **Robustez**

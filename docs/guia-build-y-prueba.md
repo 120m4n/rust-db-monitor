@@ -93,7 +93,7 @@ cd ~/prueba-monitor
 ./db-monitor
 ```
 
-Deberías ver:
+No se abre ninguna ventana: aparece un icono en la barra de menú (macOS) o en la bandeja (Windows), primero amarillo ("Conectando…") y enseguida verde o rojo. Lanzado desde una terminal, el log también sale por pantalla:
 
 ```
 INFO conectado
@@ -106,11 +106,16 @@ Con el monitor corriendo, abre otra terminal en la raíz del repo:
 
 | Qué probar | Cómo | Resultado esperado |
 |---|---|---|
-| Inserción continua | `scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 1 3` (Ctrl-C para parar) | `INFO frescura: N registros…` en cada ciclo |
-| Aviso de frescura | No insertes nada durante más de 10 s | `WARN sin registros nuevos en 'events' durante los últimos 10s` |
-| Apagado ordenado | Ctrl-C en la terminal del monitor | `INFO apagado` y sale con código 0 |
-| Logs diarios | `ls logs/` | `db-monitor.log.AAAA-MM-DD` |
-| Error de configuración | Cambia `table = "events"` por `"eventos"` y ejecuta | `ERROR freshness table 'eventos' ... no such table` y sale con código 1 |
+| Inserción continua | `scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 1 3` (Ctrl-C para parar) | Icono verde; tooltip `OK · N registros en 10 s · chequeo HH:MM` |
+| Tabla sin datos | Para el script y espera más de 10 s | Icono rojo, toast "sin datos" y ventana de advertencia |
+| Ventana insistente | Cierra la ventana de advertencia | Vuelve a aparecer en el siguiente ciclo (~2 s) |
+| Recuperación | `scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 1` | Icono verde, toast "OK" y la ventana se cierra sola |
+| Una sola instancia | Lanza `./db-monitor` otra vez | Ventana "db-monitor ya está en ejecución"; la segunda sale |
+| Menú | Clic en el icono → Abrir logs | Se abre la carpeta `logs/` |
+| Apagado ordenado | Clic en el icono → Salir | El icono desaparece; el log termina en `INFO apagado` |
+| Sin conexión | En otra carpeta, config `postgres` a `127.0.0.1` puerto `1` | Amarillo "Conectando…"; a los 60 s toast "sin conexión" |
+| Logs diarios | `ls logs/` | `db-monitor.log.AAAA-MM-DD`, con una línea `aviso: …` por cada toast |
+| Error de configuración | Cambia `table = "events"` por `"eventos"` y ejecuta | Ventana de error `freshness table 'eventos' ... no such table`; sale con código 1 |
 
 Para repetir la prueba desde cero: borra `demo.db` y `logs/`.
 

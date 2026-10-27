@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["rt", "macros", "time", "signal"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "signal", "sync"] }
 tokio-postgres = "0.7"
 rusqlite = { version = "0.32", features = ["bundled"] }
 oracle = "0.6"
