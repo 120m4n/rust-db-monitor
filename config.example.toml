@@ -7,27 +7,19 @@ password = ""              # mejor: variable de entorno DB_PASSWORD (tiene prior
 dbname = "mydb"            # postgres: base | oracle: service name | sqlite: ruta del archivo
 connect_timeout_secs = 10
 
-[monitor]
-# DEBE: devolver columna `id` entera, contener {last_id}, ORDER BY id y acotar filas.
-#   postgres/sqlite: ... LIMIT 1000        oracle (12c+): ... FETCH FIRST 1000 ROWS ONLY
-# OJO: con ids de secuencia y transacciones concurrentes, una fila con id menor puede confirmarse
-#   después de que la marca de agua pasó de largo y NO se verá nunca (ids no monótonos).
-query = "SELECT id, message FROM events WHERE id > {last_id} ORDER BY id LIMIT 1000"
-interval_secs = 60
-query_timeout_secs = 30
-backoff_max_secs = 300
-state_file = "state.toml"  # relativo a este archivo
-
 [logging]
 dir = "logs"
 level = "info"
 
-# Opcional. Avisa (WARN) en cada ciclo si la tabla no recibió filas en los últimos window_secs.
-# La tabla y las columnas se validan UNA vez al arrancar; si no existen, el proceso termina con error.
+# Avisa (WARN, toast y ventana) si la tabla no recibió filas en los últimos window_secs.
+# La tabla y las columnas se validan UNA vez, en la primera conexión; si no existen, el proceso termina con error.
 # El tiempo se mide con el reloj de la BD. sqlite: time_column como texto UTC "YYYY-MM-DD HH:MM:SS"
 # (p. ej. DEFAULT CURRENT_TIMESTAMP). postgres/oracle: columna timestamp/date en hora del servidor.
-# [freshness]
-# table = "events"          # tabla o esquema.tabla (identificador simple, sin comillas)
-# key_column = "id"         # llave única
-# time_column = "created_at"
-# window_secs = 120
+[freshness]
+table = "events"           # tabla o esquema.tabla (identificador simple, sin comillas)
+key_column = "id"          # llave única
+time_column = "created_at"
+window_secs = 120
+interval_secs = 60         # segundos entre chequeos
+query_timeout_secs = 30    # mantenlo menor que interval_secs
+backoff_max_secs = 300     # espera máxima entre reintentos de conexión

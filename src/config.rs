@@ -7,12 +7,10 @@ use serde::Deserialize;
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config {
     pub database: Database,
-    pub monitor: Monitor,
+    /// Avisa si la tabla no recibe filas nuevas en `window_secs`.
+    pub freshness: Freshness,
     #[serde(default)]
     pub logging: Logging,
-    /// Chequeo opcional: avisa si la tabla no recibe filas nuevas en `window_secs`.
-    #[serde(default)]
-    pub freshness: Option<Freshness>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -24,6 +22,12 @@ pub struct Freshness {
     /// Columna time/datetime con el momento de inserción.
     pub time_column: String,
     pub window_secs: u64,
+    #[serde(default = "d_interval")]
+    pub interval_secs: u64,
+    #[serde(default = "d_query_timeout")]
+    pub query_timeout_secs: u64,
+    #[serde(default = "d_backoff_max")]
+    pub backoff_max_secs: u64,
 }
 
 /// Los nombres van sin comillas dentro del SQL: solo identificadores simples.
@@ -73,19 +77,6 @@ impl fmt::Debug for Database {
 }
 
 #[derive(Deserialize, Clone, Debug)]
-pub struct Monitor {
-    pub query: String,
-    #[serde(default = "d_interval")]
-    pub interval_secs: u64,
-    #[serde(default = "d_query_timeout")]
-    pub query_timeout_secs: u64,
-    #[serde(default = "d_backoff_max")]
-    pub backoff_max_secs: u64,
-    #[serde(default = "d_state_file")]
-    pub state_file: PathBuf,
-}
-
-#[derive(Deserialize, Clone, Debug)]
 pub struct Logging {
     #[serde(default = "d_log_dir")]
     pub dir: PathBuf,
@@ -103,7 +94,6 @@ fn d_connect_timeout() -> u64 { 10 }
 fn d_interval() -> u64 { 60 }
 fn d_query_timeout() -> u64 { 30 }
 fn d_backoff_max() -> u64 { 300 }
-fn d_state_file() -> PathBuf { "state.toml".into() }
 fn d_log_dir() -> PathBuf { "logs".into() }
 fn d_level() -> String { "info".into() }
 
@@ -116,21 +106,17 @@ impl Config {
         if db.kind != Kind::Sqlite && (db.host.is_empty() || db.user.is_empty()) {
             bail!("database.host and database.user are required for {:?}", db.kind);
         }
-        if self.monitor.interval_secs == 0 {
-            bail!("monitor.interval_secs must be >= 1");
-        }
-        if !self.monitor.query.contains("{last_id}") {
-            bail!("monitor.query must contain the {{last_id}} placeholder");
-        }
-        if let Some(f) = &self.freshness {
-            for (name, v) in [("table", &f.table), ("key_column", &f.key_column), ("time_column", &f.time_column)] {
-                if !valid_ident(v) {
-                    bail!("freshness.{name} `{v}` is not a plain identifier");
-                }
+        let f = &self.freshness;
+        for (name, v) in [("table", &f.table), ("key_column", &f.key_column), ("time_column", &f.time_column)] {
+            if !valid_ident(v) {
+                bail!("freshness.{name} `{v}` is not a plain identifier");
             }
-            if f.window_secs == 0 {
-                bail!("freshness.window_secs must be >= 1");
-            }
+        }
+        if f.window_secs == 0 {
+            bail!("freshness.window_secs must be >= 1");
+        }
+        if f.interval_secs == 0 {
+            bail!("freshness.interval_secs must be >= 1");
         }
         Ok(())
     }
@@ -140,15 +126,18 @@ impl Config {
 pub fn load(path: &Path) -> anyhow::Result<Config> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read config {}", path.display()))?;
-    let mut c: Config =
+    let raw: toml::Table =
         toml::from_str(&text).with_context(|| format!("invalid config {}", path.display()))?;
+    if raw.contains_key("monitor") {
+        bail!("invalid config {}: la sección [monitor] ya no existe: mueve interval_secs, query_timeout_secs y backoff_max_secs a [freshness] y borra query/state_file", path.display());
+    }
+    let mut c: Config = raw.try_into().with_context(|| format!("invalid config {}", path.display()))?;
     if let Ok(pw) = std::env::var("DB_PASSWORD") {
         c.database.password = pw;
     }
     c.validate().with_context(|| format!("invalid config {}", path.display()))?;
     let base = path.parent().unwrap_or(Path::new("."));
     c.logging.dir = base.join(&c.logging.dir);
-    c.monitor.state_file = base.join(&c.monitor.state_file);
     if c.database.kind == Kind::Sqlite {
         c.database.dbname = base.join(&c.database.dbname).to_string_lossy().into_owned();
     }
@@ -165,8 +154,11 @@ kind = "postgres"
 host = "h"
 user = "u"
 dbname = "d"
-[monitor]
-query = "SELECT id FROM t WHERE id > {last_id} ORDER BY id"
+[freshness]
+table = "events"
+key_column = "id"
+time_column = "created_at"
+window_secs = 120
 "#;
 
     fn write(dir: &Path, body: &str) -> PathBuf {
@@ -180,20 +172,12 @@ query = "SELECT id FROM t WHERE id > {last_id} ORDER BY id"
         let d = tempfile::tempdir().unwrap();
         std::env::remove_var("DB_PASSWORD");
         let c = load(&write(d.path(), MIN)).unwrap();
-        assert_eq!(c.monitor.interval_secs, 60);
-        assert_eq!(c.monitor.query_timeout_secs, 30);
+        assert_eq!(c.freshness.interval_secs, 60);
+        assert_eq!(c.freshness.query_timeout_secs, 30);
+        assert_eq!(c.freshness.backoff_max_secs, 300);
         assert_eq!(c.database.connect_timeout_secs, 10);
         assert_eq!(c.logging.level, "info");
         assert_eq!(c.logging.dir, d.path().join("logs"));
-        assert_eq!(c.monitor.state_file, d.path().join("state.toml"));
-    }
-
-    #[test]
-    fn rejects_query_without_placeholder() {
-        let d = tempfile::tempdir().unwrap();
-        let body = MIN.replace("{last_id}", "0");
-        let e = load(&write(d.path(), &body)).unwrap_err();
-        assert!(format!("{e:#}").contains("{last_id}"));
     }
 
     #[test]
@@ -201,6 +185,39 @@ query = "SELECT id FROM t WHERE id > {last_id} ORDER BY id"
         let d = tempfile::tempdir().unwrap();
         let body = format!("{MIN}interval_secs = 0\n");
         assert!(load(&write(d.path(), &body)).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_window() {
+        let d = tempfile::tempdir().unwrap();
+        let body = MIN.replace("window_secs = 120", "window_secs = 0");
+        assert!(load(&write(d.path(), &body)).is_err());
+    }
+
+    #[test]
+    fn freshness_is_required() {
+        let d = tempfile::tempdir().unwrap();
+        let body = MIN.split("[freshness]").next().unwrap();
+        assert!(load(&write(d.path(), body)).is_err());
+    }
+
+    #[test]
+    fn rejects_old_monitor_section() {
+        let d = tempfile::tempdir().unwrap();
+        let body = format!("{MIN}[monitor]\nquery = \"x\"\n");
+        let e = load(&write(d.path(), &body)).unwrap_err();
+        assert!(format!("{e:#}").contains("la sección [monitor] ya no existe"), "{e:#}");
+    }
+
+    #[test]
+    fn freshness_identifiers_validated() {
+        let d = tempfile::tempdir().unwrap();
+        let with = |t: &str| MIN.replace("table = \"events\"", &format!("table = \"{t}\""));
+        let ok = load(&write(d.path(), &with("app.events"))).unwrap().freshness;
+        assert_eq!((ok.table.as_str(), ok.window_secs), ("app.events", 120));
+        assert!(load(&write(d.path(), &with("t; DROP TABLE x"))).is_err());
+        assert!(load(&write(d.path(), &with("a.b.c"))).is_err());
+        assert!(load(&write(d.path(), &with("1abc"))).is_err());
     }
 
     #[test]
@@ -212,21 +229,6 @@ query = "SELECT id FROM t WHERE id > {last_id} ORDER BY id"
         let pg = MIN.replace("host = \"h\"\n", "");
         assert!(load(&write(d.path(), &pg)).is_err());
     }
-
-    #[test]
-    fn freshness_is_optional_and_validated() {
-        let d = tempfile::tempdir().unwrap();
-        assert!(load(&write(d.path(), MIN)).unwrap().freshness.is_none());
-        let sect = |t: &str, w: u64| format!(
-            "{MIN}[freshness]\ntable = \"{t}\"\nkey_column = \"id\"\ntime_column = \"created_at\"\nwindow_secs = {w}\n");
-        let ok = load(&write(d.path(), &sect("app.events", 120))).unwrap().freshness.unwrap();
-        assert_eq!((ok.table.as_str(), ok.window_secs), ("app.events", 120));
-        assert!(load(&write(d.path(), &sect("t; DROP TABLE x", 5))).is_err());
-        assert!(load(&write(d.path(), &sect("a.b.c", 5))).is_err());
-        assert!(load(&write(d.path(), &sect("1abc", 5))).is_err());
-        assert!(load(&write(d.path(), &sect("events", 0))).is_err());
-    }
-
     #[test]
     fn rejects_unknown_kind() {
         let d = tempfile::tempdir().unwrap();

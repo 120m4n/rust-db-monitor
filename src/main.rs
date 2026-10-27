@@ -37,14 +37,15 @@ async fn app() -> ExitCode {
 
     let db = &cfg.database;
     tracing::info!(
-        "db-monitor v{} | {:?} {}{}{} | cada {}s | estado: {}",
+        "db-monitor v{} | {:?} {}{}{} | `{}` cada {}s, ventana {}s",
         env!("CARGO_PKG_VERSION"),
         db.kind,
         db.host,
         if db.host.is_empty() { "" } else { "/" },
         db.dbname,
-        cfg.monitor.interval_secs,
-        cfg.monitor.state_file.display(),
+        cfg.freshness.table,
+        cfg.freshness.interval_secs,
+        cfg.freshness.window_secs,
     );
 
     let stop = async {

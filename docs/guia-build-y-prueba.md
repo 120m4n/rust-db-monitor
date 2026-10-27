@@ -47,17 +47,16 @@ La configuración es un archivo **TOML** (no XML).
    ```
 
 2. Sin argumentos, el programa busca `config.toml` **en la misma carpeta que el ejecutable**. Para usar otro archivo: `db-monitor ruta/al/config.toml`.
-3. Las rutas relativas (`dbname` de SQLite, `logs/`, `state.toml`) se resuelven contra la carpeta del `config.toml`.
-4. Las secciones son cuatro:
+3. Las rutas relativas (`dbname` de SQLite, `logs/`) se resuelven contra la carpeta del `config.toml`.
+4. Las secciones son tres:
 
    | Sección | Para qué |
    |---|---|
    | `[database]` | Motor (`postgres`, `sqlite`, `oracle`) y datos de conexión |
-   | `[monitor]` | Consulta de registros nuevos e intervalo |
-   | `[freshness]` | Opcional: avisa si una tabla deja de recibir filas |
+   | `[freshness]` | Tabla vigilada, ventana de tiempo e intervalo de chequeo |
    | `[logging]` | Carpeta y nivel de los logs |
 
-5. La consulta de `[monitor]` debe contener `{last_id}`, devolver una columna entera `id`, ordenar por `id` y limitar las filas.
+5. Un config de versiones anteriores con `[monitor]` da error: mueve `interval_secs`, `query_timeout_secs` y `backoff_max_secs` a `[freshness]` y borra el resto de esa sección.
 6. La contraseña conviene ponerla en la variable de entorno `DB_PASSWORD` en lugar del archivo.
 
 ## 3. Prueba con SQLite (no requiere servidor)
@@ -79,15 +78,12 @@ scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 3
 kind = "sqlite"
 dbname = "demo.db"
 
-[monitor]
-query = "SELECT id, message FROM events WHERE id > {last_id} ORDER BY id LIMIT 1000"
-interval_secs = 2
-
 [freshness]
 table = "events"
 key_column = "id"
 time_column = "created_at"
 window_secs = 10
+interval_secs = 2
 ```
 
 ### 3.3 Ejecutar
@@ -101,10 +97,6 @@ Deberías ver:
 
 ```
 INFO conectado
-INFO nuevo registro row={"id": Some("1"), "message": Some("evento ...")}
-INFO nuevo registro row={"id": Some("2"), ...}
-INFO nuevo registro row={"id": Some("3"), ...}
-INFO ciclo: 3 filas, last_id=3
 INFO frescura: 3 registros en `events` en los últimos 10s
 ```
 
@@ -114,19 +106,17 @@ Con el monitor corriendo, abre otra terminal en la raíz del repo:
 
 | Qué probar | Cómo | Resultado esperado |
 |---|---|---|
-| Detecta filas nuevas | `scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 2` | Aparecen `nuevo registro` para los ids 4 y 5 |
-| Inserción continua | `scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 1 3` (Ctrl-C para parar) | Una fila nueva cada 3 s |
+| Inserción continua | `scripts/sqlite-demo.sh ~/prueba-monitor/demo.db 1 3` (Ctrl-C para parar) | `INFO frescura: N registros…` en cada ciclo |
 | Aviso de frescura | No insertes nada durante más de 10 s | `WARN sin registros nuevos en 'events' durante los últimos 10s` |
 | Apagado ordenado | Ctrl-C en la terminal del monitor | `INFO apagado` y sale con código 0 |
-| Marca de agua persistente | `cat state.toml`, luego vuelve a ejecutar `./db-monitor` | `last_id = N`; al reiniciar no repite filas ya vistas |
 | Logs diarios | `ls logs/` | `db-monitor.log.AAAA-MM-DD` |
 | Error de configuración | Cambia `table = "events"` por `"eventos"` y ejecuta | `ERROR freshness table 'eventos' ... no such table` y sale con código 1 |
 
-Para repetir la prueba desde cero: borra `demo.db`, `state.toml` y `logs/`.
+Para repetir la prueba desde cero: borra `demo.db` y `logs/`.
 
 ## 4. La misma prueba con otro motor
 
-Solo cambia `[database]` y la forma de limitar filas en `query`. El resto del config y las comprobaciones de la sección 3.4 son iguales; las filas se insertan con el cliente de cada motor en lugar de `sqlite-demo.sh`.
+Solo cambia `[database]`. El resto del config y las comprobaciones de la sección 3.4 son iguales; las filas se insertan con el cliente de cada motor en lugar de `sqlite-demo.sh`.
 
 Tabla de prueba equivalente:
 
@@ -151,8 +141,6 @@ host = "127.0.0.1"
 user = "monitor"
 dbname = "mydb"
 
-[monitor]
-query = "SELECT id, message FROM events WHERE id > {last_id} ORDER BY id LIMIT 1000"
 ```
 
 Oracle (requiere Oracle Instant Client; en macOS, las `.dylib` junto al ejecutable):
@@ -164,8 +152,6 @@ host = "127.0.0.1"
 user = "monitor"
 dbname = "ORCLPDB1"   # service name
 
-[monitor]
-query = "SELECT id, message FROM events WHERE id > {last_id} ORDER BY id FETCH FIRST 1000 ROWS ONLY"
 ```
 
 Antes de ejecutar: `export DB_PASSWORD=...` (en Windows, `set DB_PASSWORD=...`).

@@ -22,9 +22,9 @@ On this Mac the rustup toolchain isn't on PATH: `export PATH=$HOME/.rustup/toolc
 
 ## Architecture
 
-- `config.rs` — `load()` parses TOML, `DB_PASSWORD` env overrides `password`, relative paths (`logging.dir`, `state_file`, sqlite `dbname`) resolve against the config file's directory, then `validate()`.
+- `config.rs` — `load()` parses TOML, `DB_PASSWORD` env overrides `password`, relative paths (`logging.dir`, sqlite `dbname`) resolve against the config file's directory, then `validate()`. `[freshness]` is the required core section; a leftover `[monitor]` section is rejected explicitly.
 - `db.rs` — `Client` enum (Pg / Sqlite / Oracle) with `connect`, `fetch` (all rows come back as `Row` = column → `Option<String>`, duplicate column names are an error), `set_query_timeout`, `is_closed`, `interrupt`. SQLite and Oracle are sync drivers run in `spawn_blocking`; dropping the future doesn't stop them, so `interrupt()` exists to abort a running query on timeout/shutdown. SQLite opens READ_WRITE without CREATE (missing file = error).
-- `monitor.rs` — `run(cfg, shutdown)`: outer reconnect loop with exponential `backoff`, inner `interval` tick loop. Each cycle: `render_query` substitutes `{last_id}`, `fetch`, `next_watermark` (max integer `id`; any bad id fails the cycle and the watermark doesn't advance), `save_state` (atomic tmp + fsync + rename). Only fatal errors return `Err` (corrupt state file, freshness table missing); network/DB errors just reconnect. `run` is decoupled from the console so it can later be hosted as a Windows service.
+- `monitor.rs` — `run(cfg, shutdown)`: outer reconnect loop with exponential `backoff`, inner `interval` tick loop. Validates the freshness table once on the first successful connection, then each cycle runs `freshness::recent_count`. Only a missing/unusable table returns `Err`; network/DB errors just reconnect.
 - `freshness.rs` — optional `[freshness]` check: `validate_table` once per process on first connect, then a per-engine `COUNT` of rows within `window_secs` using the DB clock (identifiers are validated as plain idents since they're interpolated into SQL).
 - `main.rs` — current-thread tokio runtime, `shutdown_timeout(2s)` so a hung blocking query can't block exit; tracing to stdout + non-blocking daily file appender; Ctrl-C is the shutdown future.
 

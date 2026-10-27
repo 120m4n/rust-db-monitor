@@ -49,6 +49,9 @@ mod tests {
             key_column: "id".into(),
             time_column: "created_at".into(),
             window_secs: 90,
+            interval_secs: 60,
+            query_timeout_secs: 30,
+            backoff_max_secs: 300,
         }
     }
 

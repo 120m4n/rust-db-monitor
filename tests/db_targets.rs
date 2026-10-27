@@ -93,22 +93,11 @@ async fn oracle_roundtrip() {
 }
 
 // ---- monitor::run ----
-use db_monitor::config::{Config, Logging, Monitor};
-use db_monitor::monitor::{load_state, run};
+use db_monitor::config::{Config, Freshness, Logging};
+use db_monitor::monitor::run;
 
-fn cfg(database: Database, dir: &std::path::Path) -> Config {
-    Config {
-        database,
-        monitor: Monitor {
-            query: "SELECT id, msg FROM monitor_t WHERE id > {last_id} ORDER BY id".into(),
-            interval_secs: 1,
-            query_timeout_secs: 5,
-            backoff_max_secs: 2,
-            state_file: dir.join("state.toml"),
-        },
-        logging: Logging::default(),
-        freshness: None,
-    }
+fn cfg(database: Database) -> Config {
+    Config { database, freshness: fresh(), logging: Logging::default() }
 }
 
 /// Ejecuta `run` y dispara el apagado a los `ms` ms; devuelve lo que tardó en volver.
@@ -129,64 +118,11 @@ fn sqlite_db(dir: &std::path::Path, rows: &str) -> Database {
 }
 
 #[tokio::test]
-async fn run_sqlite_advances_watermark_and_picks_up_new_rows() {
-    let d = tempfile::tempdir().unwrap();
-    let database = sqlite_db(d.path(), "(1,'a'),(2,'b')");
-    let path = database.dbname.clone();
-    let insert = tokio::task::spawn_blocking(move || {
-        std::thread::sleep(Duration::from_millis(1300));
-        rusqlite::Connection::open(path)
-            .unwrap()
-            .execute("INSERT INTO monitor_t VALUES (3,'c')", [])
-            .unwrap();
-    });
-    let (r, _) = run_for(cfg(database, d.path()), 3200).await;
-    insert.await.unwrap();
-    r.unwrap();
-    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 3);
-}
-
-#[tokio::test]
-async fn run_survives_non_numeric_id_without_moving_watermark() {
-    let d = tempfile::tempdir().unwrap();
-    let (r, _) = run_for(cfg(sqlite_db(d.path(), "('abc','x')"), d.path()), 2200).await;
-    r.unwrap();
-    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 0);
-}
-
-#[tokio::test]
 async fn run_shutdown_interrupts_backoff_when_db_down() {
     let d = tempfile::tempdir().unwrap();
-    let (r, took) = run_for(cfg(db(Kind::Postgres, "127.0.0.1", Some(1), "x"), d.path()), 500).await;
+    let (r, took) = run_for(cfg(db(Kind::Postgres, "127.0.0.1", Some(1), "x")), 500).await;
     r.unwrap();
     assert!(took < Duration::from_secs(2), "took {took:?}");
-}
-
-#[tokio::test]
-async fn run_resumes_from_persisted_state() {
-    let d = tempfile::tempdir().unwrap();
-    db_monitor::monitor::save_state(&d.path().join("state.toml"), 2).unwrap();
-    let (r, _) = run_for(cfg(sqlite_db(d.path(), "(1,'a'),(2,'b'),(5,'e')"), d.path()), 1500).await;
-    r.unwrap();
-    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 5);
-}
-
-#[tokio::test]
-#[ignore = "needs TEST_PG_*; run with --test-threads=1 (share table monitor_t)"]
-async fn run_postgres_advances_watermark() {
-    let d = tempfile::tempdir().unwrap();
-    let database = from_env(Kind::Postgres, "TEST_PG");
-    let c = connect(&database).await.unwrap();
-    let Client::Pg(pg) = &c else { unreachable!() };
-    pg.batch_execute(
-        "DROP TABLE IF EXISTS monitor_t; CREATE TABLE monitor_t(id bigint, msg text);
-         INSERT INTO monitor_t VALUES (1,'a'),(2,'b');",
-    )
-    .await
-    .unwrap();
-    let (r, _) = run_for(cfg(database, d.path()), 1500).await;
-    r.unwrap();
-    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 2);
 }
 
 // ---- fixes tras la revisión final ----
@@ -220,28 +156,19 @@ async fn interrupt_aborts_slow_sqlite_query() {
     assert!(r.unwrap().is_err());
 }
 
-#[tokio::test]
-async fn run_retries_state_save_until_it_succeeds() {
-    let d = tempfile::tempdir().unwrap();
-    let mut c = cfg(sqlite_db(d.path(), "(1,'a'),(2,'b')"), d.path());
-    c.monitor.state_file = d.path().join("sub").join("state.toml"); // el dir no existe aún
-    let sub = d.path().join("sub");
-    let mk = tokio::task::spawn_blocking(move || {
-        std::thread::sleep(Duration::from_millis(1300));
-        std::fs::create_dir(sub).unwrap();
-    });
-    let (r, _) = run_for(c, 3300).await;
-    mk.await.unwrap();
-    r.unwrap();
-    assert_eq!(load_state(&d.path().join("sub").join("state.toml")).unwrap(), 2);
-}
-
 // ---- freshness ----
-use db_monitor::config::Freshness;
 use db_monitor::freshness::{recent_count, validate_table};
 
 fn fresh() -> Freshness {
-    Freshness { table: "ev".into(), key_column: "id".into(), time_column: "ts".into(), window_secs: 60 }
+    Freshness {
+        table: "ev".into(),
+        key_column: "id".into(),
+        time_column: "ts".into(),
+        window_secs: 60,
+        interval_secs: 1,
+        query_timeout_secs: 5,
+        backoff_max_secs: 2,
+    }
 }
 
 #[tokio::test]
@@ -279,8 +206,8 @@ async fn validate_table_fails_for_missing_table_or_column() {
 #[tokio::test]
 async fn run_exits_with_error_when_freshness_table_missing() {
     let d = tempfile::tempdir().unwrap();
-    let mut c = cfg(sqlite_db(d.path(), "(1,'a')"), d.path());
-    c.freshness = Some(Freshness { table: "nope".into(), ..fresh() });
+    let mut c = cfg(sqlite_db(d.path(), "(1,'a')"));
+    c.freshness = Freshness { table: "nope".into(), ..fresh() };
     let (r, took) = run_for(c, 5000).await;
     assert!(format!("{:#}", r.unwrap_err()).contains("nope"));
     assert!(took < Duration::from_secs(2), "took {took:?}");
@@ -294,9 +221,6 @@ async fn run_keeps_going_when_freshness_window_is_empty() {
         .unwrap()
         .execute_batch("CREATE TABLE ev(id INTEGER PRIMARY KEY, ts TEXT); INSERT INTO ev VALUES (1, datetime('now','-1 day'));")
         .unwrap();
-    let mut c = cfg(database, d.path());
-    c.freshness = Some(fresh());
-    let (r, _) = run_for(c, 2500).await;
+    let (r, _) = run_for(cfg(database), 2500).await;
     r.unwrap();
-    assert_eq!(load_state(&d.path().join("state.toml")).unwrap(), 2);
 }

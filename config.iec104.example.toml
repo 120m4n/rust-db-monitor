@@ -9,22 +9,6 @@ user = "monitor"
 dbname = "ORCLPDB1"        # service name
 connect_timeout_secs = 10
 
-[monitor]
-# Registros nuevos del historial de estados. codigohistorialestado es FLOAT(126): sirve como `id`
-# mientras sea entero y creciente (secuencia).
-# OJO: la primera vez last_id = 0 y lee TODO el historial (1000 filas por ciclo). Para empezar desde
-# ahora, crea antes state.toml con:  last_id = <resultado de SELECT MAX(codigohistorialestado) ...>
-query = """
-SELECT codigohistorialestado AS id, codigoiecelemento, estado, fechaevento, fecharegistro
-FROM iec104_historialestadoelemento
-WHERE codigohistorialestado > {last_id}
-ORDER BY codigohistorialestado
-FETCH FIRST 1000 ROWS ONLY"""
-interval_secs = 300
-query_timeout_secs = 60
-backoff_max_secs = 300
-state_file = "state.toml"
-
 # Equivale a la consulta original del perro guardián
 #   sysdate - MAX(fecharegistro) > 0.00001157407407407 * 2 * 3600   (2 horas)
 # Genera: SELECT COUNT(codigohistorialestado) AS n FROM iec104_historialestadoelemento
@@ -35,6 +19,9 @@ table = "iec104_historialestadoelemento"
 key_column = "codigohistorialestado"
 time_column = "fecharegistro"
 window_secs = 7200
+interval_secs = 300
+query_timeout_secs = 60
+backoff_max_secs = 300
 
 [logging]
 dir = "logs"
