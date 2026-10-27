@@ -1,23 +1,17 @@
+# Copiar como config.toml junto al ejecutable. Referencia completa: README.md.
+# Rutas relativas (sqlite dbname, logging.dir) se resuelven contra la carpeta de este archivo.
+
 [database]
 kind = "postgres"          # postgres | sqlite | oracle
 host = "127.0.0.1"         # no se usa con sqlite
 # port = 5432              # postgres 5432, oracle 1521
-user = "monitor"
+user = "monitor"           # no se usa con sqlite
 password = ""              # mejor: variable de entorno DB_PASSWORD (tiene prioridad)
 dbname = "mydb"            # postgres: base | oracle: service name | sqlite: ruta del archivo
 connect_timeout_secs = 10
 
-# Opcional. Reenvía los avisos (cambios de estado) a ntfy; ver README.
-# [ntfy]
-# topic = "sala-control-db-x7k2"   # en ntfy.sh los temas son públicos: nombre difícil de adivinar
-# server = "https://ntfy.sh"
-# token = ""                        # mejor: variable de entorno NTFY_TOKEN
-
-[logging]
-dir = "logs"
-level = "info"
-
-# Avisa (WARN, toast y ventana) si la tabla no recibió filas en los últimos window_secs.
+# Obligatoria. Cada interval_secs cuenta las filas con time_column dentro de los últimos window_secs.
+# Sin filas → icono rojo, toast y ventana de advertencia; al volver los datos → verde y toast.
 # La tabla y las columnas se validan UNA vez, en la primera conexión; si no existen, el proceso termina con error.
 # El tiempo se mide con el reloj de la BD. sqlite: time_column como texto UTC "YYYY-MM-DD HH:MM:SS"
 # (p. ej. DEFAULT CURRENT_TIMESTAMP). postgres/oracle: columna timestamp/date en hora del servidor.
@@ -25,7 +19,18 @@ level = "info"
 table = "events"           # tabla o esquema.tabla (identificador simple, sin comillas)
 key_column = "id"          # llave única
 time_column = "created_at"
-window_secs = 120
-interval_secs = 60         # segundos entre chequeos
+window_secs = 120          # ventana sin filas que dispara el aviso (>= 1)
+interval_secs = 60         # segundos entre chequeos (>= 1)
 query_timeout_secs = 30    # mantenlo menor que interval_secs
-backoff_max_secs = 300     # espera máxima entre reintentos de conexión
+backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 2 s, 4 s…)
+
+# Opcional. Reenvía los avisos (solo cambios de estado) a ntfy, p. ej. a la app del móvil.
+# Prioridad alta al pasar a rojo o amarillo, normal al recuperarse. Envía con el curl del sistema.
+# [ntfy]
+# topic = "sala-control-db-x7k2"   # letras, dígitos, - y _. En ntfy.sh los temas son públicos: nombre difícil de adivinar
+# server = "https://ntfy.sh"        # o un servidor propio
+# token = ""                        # solo servidores con autenticación; mejor: variable de entorno NTFY_TOKEN
+
+[logging]
+dir = "logs"               # un archivo por día: db-monitor.log.AAAA-MM-DD
+level = "info"             # error | warn | info | debug | trace

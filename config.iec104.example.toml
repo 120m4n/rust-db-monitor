@@ -1,5 +1,5 @@
 # Perro guardián IEC-104 (Oracle). Copiar como config.toml junto al .exe.
-# Contraseña: set DB_PASSWORD=...
+# Contraseña: set DB_PASSWORD=...   Requiere Oracle Instant Client (64 bits) en el PATH o junto al .exe.
 
 [database]
 kind = "oracle"
@@ -13,15 +13,22 @@ connect_timeout_secs = 10
 #   sysdate - MAX(fecharegistro) > 0.00001157407407407 * 2 * 3600   (2 horas)
 # Genera: SELECT COUNT(codigohistorialestado) AS n FROM iec104_historialestadoelemento
 #         WHERE fecharegistro >= SYSDATE - 7200/86400
-# n = 0 → WARN "sin registros nuevos ... durante los últimos 7200s" en cada ciclo mientras siga así.
+# n = 0 → icono rojo, toast y ventana de advertencia (que vuelve en cada ciclo mientras siga así).
+# Si fecharegistro no tiene índice, cada chequeo recorre la tabla: conviene indexarla.
 [freshness]
 table = "iec104_historialestadoelemento"
 key_column = "codigohistorialestado"
 time_column = "fecharegistro"
-window_secs = 7200
-interval_secs = 300
+window_secs = 7200         # 2 horas
+interval_secs = 300        # chequeo cada 5 minutos
 query_timeout_secs = 60
 backoff_max_secs = 300
+
+# Opcional. Avisos al móvil vía ntfy (cambios de estado: sin datos, sin conexión, recuperado).
+# [ntfy]
+# topic = "iec104-sala-control-x7k2"   # en ntfy.sh los temas son públicos: nombre difícil de adivinar
+# server = "https://ntfy.sh"
+# token = ""                            # mejor: set NTFY_TOKEN=...
 
 [logging]
 dir = "logs"

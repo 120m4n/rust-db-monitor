@@ -276,6 +276,20 @@ window_secs = 120
         assert!(load(&write(d.path(), &pg)).is_err());
     }
     #[test]
+    fn example_configs_are_valid() {
+        std::env::remove_var("NTFY_TOKEN");
+        for f in ["config.example.toml", "config.iec104.example.toml"] {
+            let p = Path::new(env!("CARGO_MANIFEST_DIR")).join(f);
+            load(&p).unwrap_or_else(|e| panic!("{f}: {e:#}"));
+            // con [ntfy] descomentada también debe ser válida
+            let text = std::fs::read_to_string(&p).unwrap().replace("# [ntfy]", "[ntfy]").replace("# topic", "topic").replace("# server", "server");
+            let d = tempfile::tempdir().unwrap();
+            let c = load(&write(d.path(), &text)).unwrap_or_else(|e| panic!("{f} con ntfy: {e:#}"));
+            assert!(c.ntfy.is_some(), "{f}");
+        }
+    }
+
+    #[test]
     fn rejects_unknown_kind() {
         let d = tempfile::tempdir().unwrap();
         let body = MIN.replace("postgres", "mysql");
