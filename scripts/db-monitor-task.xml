@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tarea programada de db-monitor: arranca al iniciar sesión, en la sesión del usuario
+  (InteractiveToken: con escritorio, así se ven el icono, los toasts y la ventana de advertencia).
+  Un servicio no serviría: corre en la sesión 0, sin escritorio.
+
+  Lo normal es registrarla con install-task.ps1, que rellena usuario y rutas.
+  Para importarla a mano (Programador de tareas → Importar tarea) cambia antes
+  EQUIPO\usuario y C:\db-monitor.
+
+  - Repetición cada 5 min + IgnoreNew: si el proceso murió (o se usó "Salir"), vuelve a lanzarse;
+    si sigue vivo, no se lanza otro.
+  - Retraso de 30 s al iniciar sesión: da tiempo a que exista la bandeja del sistema.
+  - ExecutionTimeLimit PT0S: sin límite (por defecto Windows la mata a las 72 h).
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>db-monitor: vigila que la tabla siga recibiendo datos (icono en la bandeja).</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Repetition>
+        <Interval>PT5M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <Enabled>true</Enabled>
+      <UserId>EQUIPO\usuario</UserId>
+      <Delay>PT30S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>EQUIPO\usuario</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>5</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\db-monitor\db-monitor.exe</Command>
+      <WorkingDirectory>C:\db-monitor</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

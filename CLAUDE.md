@@ -16,6 +16,8 @@ docker compose run --rm build-windows                         # cross-compile di
 scripts/sqlite-demo.sh demo.db 10 [secs]                      # create/populate `events` SQLite table for manual runs
 ```
 
+Windows deployment: `scripts/install-task.ps1` registers `scripts/db-monitor-task.xml` as a logon scheduled task (interactive session, not a service — the tray/toasts need a desktop); relaunch every 5 min with IgnoreNew. Untestable on the Mac (no pwsh).
+
 Postgres tests share table `monitor_t`, hence `--test-threads=1`. Oracle needs Instant Client at runtime (on macOS the `.dylib`s next to the binary).
 
 On this Mac the rustup toolchain isn't on PATH: `export PATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH`. Its `rust-objcopy` is broken (missing libLLVM), so release builds need `CARGO_PROFILE_RELEASE_STRIP=false cargo build --release && strip target/release/db-monitor`. `./build.sh` does all of this and leaves only `dist/db-monitor` + both example configs (runs `cargo clean`; `--keep` skips it).

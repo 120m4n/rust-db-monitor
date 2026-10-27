@@ -8,7 +8,7 @@ Perro guardián (Rust, pensado para Windows 10/11) que cada N segundos comprueba
 db-monitor.exe [ruta\a\config.toml]
 ```
 
-- Se lanza a mano (doble clic). No abre consola: solo aparece un icono en la bandeja del sistema (en macOS, en la barra de menú).
+- Se lanza a mano (doble clic) o, en producción, como tarea programada (ver [Arranque automático](#arranque-automático-windows)). No abre consola: solo aparece un icono en la bandeja del sistema (en macOS, en la barra de menú).
 - Sin argumento busca `config.toml` **junto al `.exe`**.
 - `logs/` se crea relativo a la carpeta del `config.toml`, salvo que pongas rutas absolutas.
 - Plantilla: copia `config.example.toml` a `config.toml`.
@@ -28,6 +28,19 @@ db-monitor.exe [ruta\a\config.toml]
 - Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Se cierra sola cuando vuelven los datos.
 - Un corte de conexión de menos de 60 s no cambia el icono ni avisa; queda solo en el log.
 - Menú del icono: estado actual (también como tooltip), **Abrir logs** (abre la carpeta) y **Salir**.
+
+## Arranque automático (Windows)
+
+Tarea programada que lo lanza al iniciar sesión, **en la sesión del usuario** (un servicio de Windows corre sin escritorio: no se verían el icono ni las ventanas).
+
+1. Copia a una carpeta escribible por el usuario (p. ej. `C:\db-monitor`, no `Program Files`): `db-monitor.exe`, `config.toml`, `install-task.ps1` y `db-monitor-task.xml` (los dos últimos están en `scripts/` y en `dist/windows/`).
+2. En esa carpeta: `powershell -ExecutionPolicy Bypass -File install-task.ps1`. Registra la tarea `db-monitor` para el usuario actual y la lanza. Para otro usuario: `-Usuario EQUIPO\operador`, como administrador.
+3. Variables como `DB_PASSWORD` deben ser **de usuario** (`setx DB_PASSWORD ...`); toman efecto en el siguiente inicio de sesión.
+
+- Arranca 30 s después de iniciar sesión y se relanza cada 5 min si no está corriendo (también tras **Salir**). Sin límite de duración.
+- Para pararlo del todo: deshabilita la tarea en el Programador de tareas o `install-task.ps1 -Desinstalar`.
+- No lo abras además con doble clic: la tarea lanzaría otra instancia que avisa "ya está en ejecución" cada 5 min.
+- Sin el script: Programador de tareas → **Importar tarea** → `db-monitor-task.xml`, cambiando antes `EQUIPO\usuario` y `C:\db-monitor`.
 
 ## Configuración (`config.toml`)
 
@@ -180,11 +193,10 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 ## TODO
 
 **Pendiente de verificar**
-- [ ] Ejecutar en Windows 11: icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
+- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
 - [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
 
 **Funcionalidad**
-- [ ] Arrancar con el sistema (acceso directo en Inicio o tarea programada).
 - [ ] TLS para PostgreSQL.
 - [ ] Detectar UPDATE y DELETE (hoy solo registros nuevos).
 

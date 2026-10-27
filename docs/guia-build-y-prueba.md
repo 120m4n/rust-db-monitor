@@ -35,7 +35,7 @@ Con Docker Desktop corriendo:
 docker compose run --rm build-windows
 ```
 
-Resultado: `dist/windows/db-monitor.exe` (Windows x86_64, toolchain MinGW) y las dos plantillas (`config.example.toml`, `config.iec104.example.toml`). Al final lista las DLL que importa el `.exe`; todas deben ser del sistema (`kernel32.dll`, `ws2_32.dll`, `msvcrt.dll`…). El primer build tarda unos 3 minutos; los siguientes reusan la caché de los volúmenes `cargo-registry` y `target-windows`.
+Resultado: `dist/windows/db-monitor.exe` (Windows x86_64, toolchain MinGW) las dos plantillas (`config.example.toml`, `config.iec104.example.toml`) y el instalador de la tarea programada (`install-task.ps1`, `db-monitor-task.xml`; ver README, «Arranque automático»). Al final lista las DLL que importa el `.exe`; todas deben ser del sistema (`kernel32.dll`, `ws2_32.dll`, `msvcrt.dll`…). El primer build tarda unos 3 minutos; los siguientes reusan la caché de los volúmenes `cargo-registry` y `target-windows`.
 
 ## 2. Configuración (`config.toml`)
 
