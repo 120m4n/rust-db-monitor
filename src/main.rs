@@ -31,8 +31,11 @@ fn fatal(msg: &str) -> ! {
 }
 
 fn main() {
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    // --tarea: lo lanza la tarea programada, que reintenta cada 5 min; si ya corre, sale sin ventana
+    let tarea = args.iter().position(|a| a == "--tarea").map(|i| args.remove(i)).is_some();
     // Por defecto junto al .exe: lanzado con doble clic no arranca en el directorio del programa.
-    let path = std::env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| {
+    let path = args.into_iter().next().map(PathBuf::from).unwrap_or_else(|| {
         let exe = std::env::current_exe().unwrap_or_default();
         exe.with_file_name("config.toml")
     });
@@ -41,7 +44,9 @@ fn main() {
     let _lock = match desktop::acquire_lock(&path.parent().unwrap_or(Path::new(".")).join("db-monitor.lock")) {
         Ok(Some(f)) => f,
         Ok(None) => {
-            desktop::info_box("db-monitor ya está en ejecución");
+            if !tarea {
+                desktop::info_box("db-monitor ya está en ejecución");
+            }
             exit(0)
         }
         Err(e) => fatal(&format!("{e:#}")),

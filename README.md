@@ -5,7 +5,7 @@ Perro guardián (Rust, pensado para Windows 10/11) que cada N segundos comprueba
 ## Uso
 
 ```
-db-monitor.exe [ruta\a\config.toml]
+db-monitor.exe [ruta\a\config.toml] [--tarea]
 ```
 
 - Se lanza a mano (doble clic) o, en producción, como tarea programada (ver [Arranque automático](#arranque-automático-windows)). No abre consola: solo aparece un icono en la bandeja del sistema (en macOS, en la barra de menú).
@@ -13,7 +13,7 @@ db-monitor.exe [ruta\a\config.toml]
 - `logs/` se crea relativo a la carpeta del `config.toml`, salvo que pongas rutas absolutas.
 - Plantilla: copia `config.example.toml` a `config.toml`.
 - Si la config es inválida, muestra una ventana de error con el motivo y sale con código 1.
-- Una sola instancia: si ya hay una corriendo (archivo `db-monitor.lock` junto al `config.toml`), avisa "db-monitor ya está en ejecución" y sale.
+- Una sola instancia: si ya hay una corriendo (archivo `db-monitor.lock` junto al `config.toml`), avisa "db-monitor ya está en ejecución" y sale. Con `--tarea` (lo usa la tarea programada) sale sin avisar.
 
 ## Avisos
 
@@ -39,7 +39,7 @@ Tarea programada que lo lanza al iniciar sesión, **en la sesión del usuario** 
 
 - Arranca 30 s después de iniciar sesión y se relanza cada 5 min si no está corriendo (también tras **Salir**). Sin límite de duración.
 - Para pararlo del todo: deshabilita la tarea en el Programador de tareas o `install-task.ps1 -Desinstalar`.
-- No lo abras además con doble clic: la tarea lanzaría otra instancia que avisa "ya está en ejecución" cada 5 min.
+- Si además se abre con doble clic no pasa nada: la tarea lo lanza con `--tarea` y, si ya corre, sale sin avisar.
 - Sin el script: Programador de tareas → **Importar tarea** → `db-monitor-task.xml`, cambiando antes `EQUIPO\usuario` y `C:\db-monitor`.
 
 ## Configuración (`config.toml`)

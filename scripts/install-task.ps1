@@ -39,7 +39,7 @@ Write-Host "Arranca al iniciar sesion y se relanza cada 5 min si no esta corrien
 Write-Host "Para pararla del todo: deshabilita la tarea o usa -Desinstalar ('Salir' solo la cierra hasta el siguiente relanzamiento)."
 
 if ($Usuario -eq "$env:USERDOMAIN\$env:USERNAME") {
-    # si ya hay uno abierto a mano, esta instancia avisara "ya esta en ejecucion": cierralo antes
+    # si ya hay uno abierto a mano, esta instancia sale sin avisar (--tarea)
     Start-ScheduledTask -TaskName $Nombre
     Write-Host "Lanzada ahora."
 }

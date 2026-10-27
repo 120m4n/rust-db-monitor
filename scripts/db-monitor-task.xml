@@ -61,6 +61,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>C:\db-monitor\db-monitor.exe</Command>
+      <!-- si ya está corriendo (p. ej. abierto a mano), sale sin el aviso "ya está en ejecución" -->
+      <Arguments>--tarea</Arguments>
       <WorkingDirectory>C:\db-monitor</WorkingDirectory>
     </Exec>
   </Actions>
