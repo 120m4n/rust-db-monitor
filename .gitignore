@@ -3,3 +3,4 @@ config.toml
 logs/
 state.toml
 .superpowers/
+dist/

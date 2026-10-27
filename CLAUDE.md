@@ -17,7 +17,7 @@ scripts/sqlite-demo.sh demo.db 10 [secs]                      # create/populate 
 
 Postgres tests share table `monitor_t`, hence `--test-threads=1`. Oracle needs Instant Client at runtime (on macOS the `.dylib`s next to the binary).
 
-On this Mac the rustup toolchain isn't on PATH: `export PATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH`. Its `rust-objcopy` is broken (missing libLLVM), so release builds need `CARGO_PROFILE_RELEASE_STRIP=false cargo build --release && strip target/release/db-monitor`.
+On this Mac the rustup toolchain isn't on PATH: `export PATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH`. Its `rust-objcopy` is broken (missing libLLVM), so release builds need `CARGO_PROFILE_RELEASE_STRIP=false cargo build --release && strip target/release/db-monitor`. `./build.sh` does all of this and leaves only `dist/db-monitor` + `config.example.toml` (runs `cargo clean`; `--keep` skips it).
 
 ## Architecture
 
