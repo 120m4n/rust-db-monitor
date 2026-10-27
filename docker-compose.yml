@@ -1,0 +1,22 @@
+# docker compose run --rm build-windows   → dist/windows/db-monitor.exe
+services:
+  build-windows:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows
+    volumes:
+      - .:/src
+      - cargo-registry:/usr/local/cargo/registry
+      # target/ propio del contenedor: no se mezcla con el build de macOS
+      - target-windows:/target
+    environment:
+      CARGO_TARGET_DIR: /target
+    command: >
+      sh -c "cargo build --release --target x86_64-pc-windows-gnu &&
+             mkdir -p dist/windows &&
+             cp /target/x86_64-pc-windows-gnu/release/db-monitor.exe config.example.toml dist/windows/ &&
+             x86_64-w64-mingw32-objdump -p dist/windows/db-monitor.exe | grep 'DLL Name'"
+
+volumes:
+  cargo-registry:
+  target-windows:

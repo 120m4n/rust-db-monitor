@@ -12,6 +12,7 @@ cargo test <name>                                             # single test, e.g
 cargo test --test db_targets -- --ignored --test-threads=1    # real Postgres/Oracle; needs TEST_PG_* / TEST_ORA_* (HOST, PORT, USER, PASSWORD, NAME)
 cargo build --release                                         # CI builds db-monitor.exe on windows-latest
 target/release/db-monitor path/to/config.toml                 # default: config.toml next to the exe
+docker compose run --rm build-windows                         # cross-compile dist/windows/db-monitor.exe (x86_64-pc-windows-gnu, MinGW)
 scripts/sqlite-demo.sh demo.db 10 [secs]                      # create/populate `events` SQLite table for manual runs
 ```
 

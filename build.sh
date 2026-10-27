@@ -12,7 +12,7 @@ TC="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin"
 # el rust-objcopy del toolchain local falla (falta libLLVM): se hace strip con el del sistema
 CARGO_PROFILE_RELEASE_STRIP=false cargo build --release --target aarch64-apple-darwin
 
-rm -rf dist && mkdir dist
+mkdir -p dist
 cp target/aarch64-apple-darwin/release/db-monitor dist/
 strip dist/db-monitor
 cp config.example.toml dist/
