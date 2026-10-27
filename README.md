@@ -110,6 +110,9 @@ key_column = "id"
 time_column = "created_at"
 window_secs = 300
 interval_secs = 60
+
+[ntfy]                 # opcional: avisos al móvil
+topic = "sala-control-db-x7k2"
 ```
 
 Oracle:

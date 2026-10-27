@@ -15,7 +15,7 @@ CARGO_PROFILE_RELEASE_STRIP=false cargo build --release --target aarch64-apple-d
 mkdir -p dist
 cp target/aarch64-apple-darwin/release/db-monitor dist/
 strip dist/db-monitor
-cp config.example.toml dist/
+cp config.example.toml config.iec104.example.toml dist/
 
 [ "${1:-}" = "--keep" ] || cargo clean
 

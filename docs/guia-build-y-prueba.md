@@ -16,6 +16,7 @@ Resultado:
 ```
 dist/db-monitor            ejecutable arm64
 dist/config.example.toml   plantilla de configuración
+dist/config.iec104.example.toml   plantilla del caso IEC-104 (Oracle)
 ```
 
 ### Windows 10
@@ -34,7 +35,7 @@ Con Docker Desktop corriendo:
 docker compose run --rm build-windows
 ```
 
-Resultado: `dist/windows/db-monitor.exe` (Windows x86_64, toolchain MinGW) y `config.example.toml`. Al final lista las DLL que importa el `.exe`; todas deben ser del sistema (`kernel32.dll`, `ws2_32.dll`, `msvcrt.dll`…). El primer build tarda unos 3 minutos; los siguientes reusan la caché de los volúmenes `cargo-registry` y `target-windows`.
+Resultado: `dist/windows/db-monitor.exe` (Windows x86_64, toolchain MinGW) y las dos plantillas (`config.example.toml`, `config.iec104.example.toml`). Al final lista las DLL que importa el `.exe`; todas deben ser del sistema (`kernel32.dll`, `ws2_32.dll`, `msvcrt.dll`…). El primer build tarda unos 3 minutos; los siguientes reusan la caché de los volúmenes `cargo-registry` y `target-windows`.
 
 ## 2. Configuración (`config.toml`)
 
