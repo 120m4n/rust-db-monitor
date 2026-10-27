@@ -51,7 +51,7 @@ async fn app() -> ExitCode {
     let stop = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    match monitor::run(cfg, stop).await {
+    match monitor::run(cfg, stop, |_| {}).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e:#}");

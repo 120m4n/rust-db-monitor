@@ -5,6 +5,15 @@ use crate::config::Config;
 use crate::db;
 use crate::freshness;
 
+/// Resultado de cada chequeo, para quien muestre el estado (bandeja, toasts).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Check {
+    Fresh { n: u64 },
+    Stale,
+    /// La sesión falló (conexión o consulta); se reintenta con backoff.
+    Failed,
+}
+
 pub fn backoff(attempt: u32, max_secs: u64) -> Duration {
     let secs = 1u64.checked_shl(attempt).unwrap_or(u64::MAX);
     Duration::from_secs(secs.min(max_secs))
@@ -12,7 +21,12 @@ pub fn backoff(attempt: u32, max_secs: u64) -> Duration {
 
 /// Bucle principal: conecta (con backoff), valida la tabla una vez y cuenta filas recientes cada `interval_secs`.
 /// Solo devuelve `Err` si la tabla o sus columnas no sirven; vuelve `Ok` al disparar `shutdown`.
-pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Result<()> {
+/// `on_check` recibe cada resultado; nunca se llama antes de devolver `Err`.
+pub async fn run(
+    cfg: Config,
+    shutdown: impl Future<Output = ()>,
+    mut on_check: impl FnMut(Check),
+) -> anyhow::Result<()> {
     use tokio::time::{interval, sleep, timeout, MissedTickBehavior};
 
     tokio::pin!(shutdown);
@@ -63,6 +77,7 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
                     },
                 };
                 attempt = 0;
+                on_check(if n == 0 { Check::Stale } else { Check::Fresh { n } });
                 if n == 0 {
                     tracing::warn!("sin registros nuevos en `{}` durante los últimos {}s", f.table, f.window_secs);
                 } else {
@@ -71,6 +86,7 @@ pub async fn run(cfg: Config, shutdown: impl Future<Output = ()>) -> anyhow::Res
             }
         };
         if failed {
+            on_check(Check::Failed);
             let wait = backoff(attempt, f.backoff_max_secs);
             attempt = attempt.saturating_add(1);
             tokio::select! { _ = &mut shutdown => return stopped(), _ = sleep(wait) => {} }

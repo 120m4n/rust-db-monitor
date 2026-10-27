@@ -94,7 +94,7 @@ async fn oracle_roundtrip() {
 
 // ---- monitor::run ----
 use db_monitor::config::{Config, Freshness, Logging};
-use db_monitor::monitor::run;
+use db_monitor::monitor::{run, Check};
 
 fn cfg(database: Database) -> Config {
     Config { database, freshness: fresh(), logging: Logging::default() }
@@ -103,8 +103,15 @@ fn cfg(database: Database) -> Config {
 /// Ejecuta `run` y dispara el apagado a los `ms` ms; devuelve lo que tardó en volver.
 async fn run_for(c: Config, ms: u64) -> (anyhow::Result<()>, Duration) {
     let t = Instant::now();
-    let r = run(c, tokio::time::sleep(Duration::from_millis(ms))).await;
+    let r = run(c, tokio::time::sleep(Duration::from_millis(ms)), |_| {}).await;
     (r, t.elapsed())
+}
+
+/// Ejecuta `run` durante `ms` ms y devuelve cada `Check` informado.
+async fn run_collect(c: Config, ms: u64) -> (anyhow::Result<()>, Vec<Check>) {
+    let mut checks = Vec::new();
+    let r = run(c, tokio::time::sleep(Duration::from_millis(ms)), |k| checks.push(k)).await;
+    (r, checks)
 }
 
 fn sqlite_db(dir: &std::path::Path, rows: &str) -> Database {
@@ -223,4 +230,55 @@ async fn run_keeps_going_when_freshness_window_is_empty() {
         .unwrap();
     let (r, _) = run_for(cfg(database), 2500).await;
     r.unwrap();
+}
+
+// ---- Check ----
+fn sqlite_with_ev(dir: &std::path::Path, rows: &str) -> Database {
+    let database = sqlite_db(dir, "(1,'a')");
+    rusqlite::Connection::open(&database.dbname)
+        .unwrap()
+        .execute_batch(&format!("CREATE TABLE ev(id INTEGER PRIMARY KEY, ts TEXT); INSERT INTO ev VALUES {rows};"))
+        .unwrap();
+    database
+}
+
+#[tokio::test]
+async fn run_reports_fresh_with_count() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_with_ev(d.path(), "(1, datetime('now')), (2, datetime('now'))");
+    let (r, checks) = run_collect(cfg(database), 1500).await;
+    r.unwrap();
+    assert_eq!(checks.first(), Some(&Check::Fresh { n: 2 }), "{checks:?}");
+}
+
+#[tokio::test]
+async fn run_reports_stale_when_window_empty() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_with_ev(d.path(), "(1, datetime('now','-1 day'))");
+    let (r, checks) = run_collect(cfg(database), 1500).await;
+    r.unwrap();
+    assert!(checks.contains(&Check::Stale), "{checks:?}");
+    assert!(!checks.iter().any(|c| matches!(c, Check::Fresh { .. })), "{checks:?}");
+}
+
+#[tokio::test]
+async fn run_reports_failed_when_db_down() {
+    let (r, checks) = run_collect(cfg(db(Kind::Postgres, "127.0.0.1", Some(1), "x")), 1500).await;
+    r.unwrap();
+    assert!(!checks.is_empty() && checks.iter().all(|c| *c == Check::Failed), "{checks:?}");
+}
+
+#[tokio::test]
+async fn run_fails_late_when_table_missing_after_outage() {
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("late.db");
+    let p2 = path.clone();
+    let create = tokio::task::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_millis(1300));
+        rusqlite::Connection::open(p2).unwrap().execute_batch("CREATE TABLE other(x);").unwrap();
+    });
+    let (r, checks) = run_collect(cfg(db(Kind::Sqlite, "", None, path.to_str().unwrap())), 6000).await;
+    create.await.unwrap();
+    assert!(format!("{:#}", r.unwrap_err()).contains("ev"));
+    assert!(checks.contains(&Check::Failed), "{checks:?}");
 }
