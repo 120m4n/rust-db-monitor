@@ -24,7 +24,7 @@ dist/config.example.toml   plantilla de configuración
 cargo build --release
 ```
 
-El ejecutable queda en `target\release\db-monitor.exe`. También lo publica el CI de GitHub en cada push (artefacto `db-monitor-windows`).
+El ejecutable queda en `target\release\db-monitor.exe`.
 
 ### Windows desde macOS (Docker)
 
@@ -93,7 +93,7 @@ cd ~/prueba-monitor
 ./db-monitor
 ```
 
-No se abre ninguna ventana: aparece un icono en la barra de menú (macOS) o en la bandeja (Windows), primero amarillo ("Conectando…") y enseguida verde o rojo. Lanzado desde una terminal, el log también sale por pantalla:
+No se abre ninguna ventana: sale un toast "db-monitor en ejecución" y aparece un icono en la barra de menú (macOS) o en la bandeja (Windows), primero amarillo ("Conectando…") y enseguida verde o rojo. Lanzado desde una terminal, el log también sale por pantalla:
 
 ```
 INFO conectado

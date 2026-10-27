@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Versión redibujada para 16 y 24 px: borde más grueso, ojo más grande, sin iris. -->
+  <style>
+    .cuerpo { fill: #1E3A5F; }
+    .tapa   { fill: #3E6FA3; }
+    .borde  { fill: none; stroke: #FFFFFF; stroke-width: 5; stroke-opacity: 0.9; }
+    .ojo    { fill: #FFFFFF; }
+    .pupila { fill: #1E3A5F; }
+  </style>
+  <path class="borde" d="M10 15v34a22 8 0 0 0 44 0V15a22 8 0 0 0-44 0z"/>
+  <path class="cuerpo" d="M10 15v34a22 8 0 0 0 44 0V15z"/>
+  <ellipse class="tapa" cx="32" cy="15" rx="22" ry="8"/>
+  <path class="ojo" d="M11 35q21-19 42 0q-21 19-42 0z"/>
+  <circle class="pupila" cx="32" cy="35" r="7"/>
+</svg>

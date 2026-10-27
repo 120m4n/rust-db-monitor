@@ -11,6 +11,26 @@ pub struct Config {
     pub freshness: Freshness,
     #[serde(default)]
     pub logging: Logging,
+    /// Opcional: reenvía los avisos a ntfy.
+    #[serde(default)]
+    pub ntfy: Option<Ntfy>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct Ntfy {
+    /// Tema; quien se suscribe a él recibe los avisos. Solo letras, dígitos, `-` y `_`.
+    pub topic: String,
+    #[serde(default = "d_ntfy_server")]
+    pub server: String,
+    /// Token de acceso (servidores con autenticación); `NTFY_TOKEN` tiene prioridad.
+    #[serde(default)]
+    pub token: String,
+}
+
+impl fmt::Debug for Ntfy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Ntfy").field("topic", &self.topic).field("server", &self.server).field("token", &"***").finish()
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -94,6 +114,7 @@ fn d_connect_timeout() -> u64 { 10 }
 fn d_interval() -> u64 { 60 }
 fn d_query_timeout() -> u64 { 30 }
 fn d_backoff_max() -> u64 { 300 }
+fn d_ntfy_server() -> String { "https://ntfy.sh".into() }
 fn d_log_dir() -> PathBuf { "logs".into() }
 fn d_level() -> String { "info".into() }
 
@@ -118,6 +139,14 @@ impl Config {
         if f.interval_secs == 0 {
             bail!("freshness.interval_secs must be >= 1");
         }
+        if let Some(n) = &self.ntfy {
+            if n.topic.is_empty() || !n.topic.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')) {
+                bail!("ntfy.topic `{}` must be letters, digits, `-` or `_`", n.topic);
+            }
+            if !(n.server.starts_with("https://") || n.server.starts_with("http://")) {
+                bail!("ntfy.server `{}` must start with https:// or http://", n.server);
+            }
+        }
         Ok(())
     }
 }
@@ -134,6 +163,9 @@ pub fn load(path: &Path) -> anyhow::Result<Config> {
     let mut c: Config = raw.try_into().with_context(|| format!("invalid config {}", path.display()))?;
     if let Ok(pw) = std::env::var("DB_PASSWORD") {
         c.database.password = pw;
+    }
+    if let (Ok(tk), Some(n)) = (std::env::var("NTFY_TOKEN"), c.ntfy.as_mut()) {
+        n.token = tk;
     }
     c.validate().with_context(|| format!("invalid config {}", path.display()))?;
     let base = path.parent().unwrap_or(Path::new("."));
@@ -218,6 +250,20 @@ window_secs = 120
         assert!(load(&write(d.path(), &with("t; DROP TABLE x"))).is_err());
         assert!(load(&write(d.path(), &with("a.b.c"))).is_err());
         assert!(load(&write(d.path(), &with("1abc"))).is_err());
+    }
+
+    #[test]
+    fn ntfy_is_optional_and_validated() {
+        let d = tempfile::tempdir().unwrap();
+        std::env::remove_var("NTFY_TOKEN");
+        assert!(load(&write(d.path(), MIN)).unwrap().ntfy.is_none());
+        let with = |t: &str| format!("{MIN}[ntfy]\ntopic = \"{t}\"\n");
+        let n = load(&write(d.path(), &with("sala_control-1"))).unwrap().ntfy.unwrap();
+        assert_eq!((n.topic.as_str(), n.server.as_str(), n.token.as_str()), ("sala_control-1", "https://ntfy.sh", ""));
+        assert!(load(&write(d.path(), &with(""))).is_err());
+        assert!(load(&write(d.path(), &with("sala control"))).is_err());
+        let bad_server = format!("{}server = \"ntfy.sh\"\n", with("t"));
+        assert!(load(&write(d.path(), &bad_server)).is_err());
     }
 
     #[test]

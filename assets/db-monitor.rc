@@ -1,0 +1,2 @@
+// Icono del .exe (el primero del archivo es el que muestra el Explorador). Ruta relativa a la raíz del crate.
+1 ICON "assets/db-monitor.ico"

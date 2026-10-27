@@ -24,23 +24,16 @@ pub fn acquire_lock(path: &Path) -> anyhow::Result<Option<std::fs::File>> {
     }
 }
 
-/// Círculo de color de 32×32 sobre fondo transparente.
+/// Logo de 32×32 con el color de estado. Son RGBA crudos generados por `assets/build-icons.sh`:
+/// así no hace falta una dependencia para decodificar PNG.
 pub fn icon(light: Light) -> tray_icon::Icon {
     const N: u32 = 32;
-    let [r, g, b] = match light {
-        Light::Green => [0x2E, 0x7D, 0x32],
-        Light::Yellow => [0xF9, 0xA8, 0x25],
-        Light::Red => [0xC6, 0x28, 0x28],
+    let rgba: &[u8] = match light {
+        Light::Green => include_bytes!("../assets/tray/green.rgba"),
+        Light::Yellow => include_bytes!("../assets/tray/yellow.rgba"),
+        Light::Red => include_bytes!("../assets/tray/red.rgba"),
     };
-    let c = (N as f32 - 1.0) / 2.0;
-    let mut rgba = Vec::with_capacity((N * N * 4) as usize);
-    for y in 0..N {
-        for x in 0..N {
-            let inside = (x as f32 - c).hypot(y as f32 - c) <= c;
-            rgba.extend_from_slice(&[r, g, b, if inside { 0xFF } else { 0 }]);
-        }
-    }
-    tray_icon::Icon::from_rgba(rgba, N, N).expect("valid rgba icon")
+    tray_icon::Icon::from_rgba(rgba.to_vec(), N, N).expect("valid rgba icon")
 }
 
 /// Notificación del sistema; si falla (permisos, modo concentración) solo se loguea.
@@ -189,6 +182,13 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tray_icons_are_valid_rgba() {
+        for l in [Light::Green, Light::Yellow, Light::Red] {
+            icon(l);
+        }
+    }
 
     #[test]
     fn lock_is_exclusive_and_released_on_drop() {

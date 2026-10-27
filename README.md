@@ -23,6 +23,7 @@ db-monitor.exe [ruta\a\config.toml]
 | Rojo | Conectado, pero sin filas en `window_secs` | Toast + ventana de advertencia |
 | Amarillo | Sin conexión a la base durante más de 60 s (también "Conectando…" al arrancar) | Toast |
 
+- Al arrancar sin errores sale un toast "db-monitor en ejecución" que dice dónde está el icono.
 - Los toasts salen **solo al cambiar de estado**, no en cada ciclo.
 - Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Se cierra sola cuando vuelven los datos.
 - Un corte de conexión de menos de 60 s no cambia el icono ni avisa; queda solo en el log.
@@ -69,6 +70,18 @@ Formato de `time_column`:
 
 - **SQLite:** texto UTC `YYYY-MM-DD HH:MM:SS` (p. ej. `DEFAULT CURRENT_TIMESTAMP`).
 - **PostgreSQL / Oracle:** `timestamp` o `date` en la hora del servidor.
+
+### `[ntfy]` (opcional)
+
+Reenvía los avisos a [ntfy](https://ntfy.sh) para recibirlos en el móvil o en otro equipo (app de ntfy suscrita al mismo `topic`). Se envía lo mismo que los toasts, solo en los cambios de estado: prioridad alta al pasar a rojo o amarillo, normal al recuperarse.
+
+| Clave | Por defecto | Descripción |
+|---|---|---|
+| `topic` | — | Tema (letras, dígitos, `-`, `_`). En ntfy.sh los temas son públicos: usa un nombre difícil de adivinar |
+| `server` | `https://ntfy.sh` | Servidor ntfy (o uno propio) |
+| `token` | vacío | Token de acceso para servidores con autenticación. Mejor la variable de entorno `NTFY_TOKEN`, que tiene prioridad |
+
+Usa el `curl` del sistema (incluido en Windows 10/11 y macOS). Si falla el envío (sin red, servidor caído), queda un `WARN ntfy: …` en el log y el programa sigue.
 
 ### `[logging]`
 
@@ -157,7 +170,9 @@ cargo test                                   # unitarios + SQLite
 cargo test --test db_targets -- --ignored --test-threads=1   # Postgres y Oracle reales
 ```
 
-Los tests de Postgres y Oracle leen `TEST_PG_*` y `TEST_ORA_*` (`HOST`, `PORT`, `USER`, `PASSWORD`, `NAME`). El CI (`.github/workflows/ci.yml`) compila y testea en `windows-latest` y publica `db-monitor.exe`.
+Los tests de Postgres y Oracle leen `TEST_PG_*` y `TEST_ORA_*` (`HOST`, `PORT`, `USER`, `PASSWORD`, `NAME`). El `.exe` de Windows se genera con `docker compose run --rm build-windows` (ver `docs/guia-build-y-prueba.md`).
+
+Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). `assets/build-icons.sh` regenera `assets/db-monitor.ico` (incrustado en el `.exe` por `build.rs`) y los iconos de bandeja `assets/tray/*.png|.rgba`; requiere `rsvg-convert` e ImageMagick.
 
 ## TODO
 

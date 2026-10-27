@@ -29,3 +29,6 @@ tempfile = "3"
 lto = true
 strip = true
 codegen-units = 1
+
+[build-dependencies]
+embed-resource = "3"

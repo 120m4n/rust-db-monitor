@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Colores en un solo lugar. Los iconos de bandeja reemplazan .cuerpo/.tapa por el color de estado (assets/build-icons.sh). -->
+  <style>
+    .cuerpo { fill: #1E3A5F; }
+    .tapa   { fill: #3E6FA3; }
+    .borde  { fill: none; stroke: #FFFFFF; stroke-width: 2.5; stroke-opacity: 0.9; }
+    .ojo    { fill: #FFFFFF; }
+    .iris   { fill: #43A047; }
+    .pupila { fill: #1E3A5F; }
+  </style>
+  <path class="borde" d="M12 14v36a20 7 0 0 0 40 0V14a20 7 0 0 0-40 0z"/>
+  <path class="cuerpo" d="M12 14v36a20 7 0 0 0 40 0V14z"/>
+  <ellipse class="tapa" cx="32" cy="14" rx="20" ry="7"/>
+  <path class="ojo" d="M15 34q17-15 34 0q-17 15-34 0z"/>
+  <circle class="iris" cx="32" cy="34" r="6"/>
+  <circle class="pupila" cx="32" cy="34" r="2.75"/>
+</svg>

@@ -7,6 +7,12 @@ password = ""              # mejor: variable de entorno DB_PASSWORD (tiene prior
 dbname = "mydb"            # postgres: base | oracle: service name | sqlite: ruta del archivo
 connect_timeout_secs = 10
 
+# Opcional. Reenvía los avisos (cambios de estado) a ntfy; ver README.
+# [ntfy]
+# topic = "sala-control-db-x7k2"   # en ntfy.sh los temas son públicos: nombre difícil de adivinar
+# server = "https://ntfy.sh"
+# token = ""                        # mejor: variable de entorno NTFY_TOKEN
+
 [logging]
 dir = "logs"
 level = "info"

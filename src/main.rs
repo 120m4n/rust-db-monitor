@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use db_monitor::alerts::{Action, Alerts, Light};
 use db_monitor::monitor::{self, Check};
-use db_monitor::{config, desktop};
+use db_monitor::{config, desktop, ntfy};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -113,6 +113,7 @@ fn main() {
     menu.append_items(&[&status_item, &PredefinedMenuItem::separator(), &logs_item, &quit_item])
         .unwrap_or_else(|e| fatal(&format!("no se pudo crear el menú: {e}")));
     let log_dir = cfg.logging.dir.clone();
+    let ntfy = cfg.ntfy.clone();
     let mut tray: Option<TrayIcon> = None;
     let mut stop_tx = Some(stop_tx);
     let mut guard = Some(guard);
@@ -128,6 +129,11 @@ fn main() {
                     .build()
                     .unwrap_or_else(|e| fatal(&format!("no se pudo crear el icono de bandeja: {e}")));
                 tray = Some(t);
+                // sin consola, un usuario nuevo no sabe que arrancó: se le dice dónde está el icono
+                let donde = if cfg!(target_os = "macos") { "la barra de menú" } else { "la bandeja del sistema" };
+                let body = format!("Vigilando {}. El icono está en {donde}.", cfg.freshness.table);
+                tracing::info!("aviso: db-monitor en ejecución · {body}");
+                desktop::toast("db-monitor en ejecución", &body);
                 Vec::new()
             }
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) => alerts.on_tick(Instant::now()),
@@ -158,6 +164,8 @@ fn main() {
             }
             _ => return,
         };
+        // rojo o amarillo en este lote: aviso urgente para ntfy
+        let urgent = actions.iter().any(|a| matches!(a, Action::SetLight(Light::Red | Light::Yellow)));
         for a in actions {
             match a {
                 Action::SetLight(l) => {
@@ -168,6 +176,9 @@ fn main() {
                 Action::Toast { title, body } => {
                     tracing::info!("aviso: {title} · {body}");
                     desktop::toast(&title, &body);
+                    if let Some(n) = &ntfy {
+                        ntfy::send(n, &title, &body, urgent);
+                    }
                 }
                 Action::ShowWarning(text) => warning.show(&text),
                 Action::CloseWarning => warning.close(),

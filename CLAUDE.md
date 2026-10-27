@@ -10,7 +10,7 @@ Console app (Rust, target Windows 10) that polls a DB every N seconds for new ro
 cargo test                                                    # unit + SQLite integration (no external DBs)
 cargo test <name>                                             # single test, e.g. cargo test sqlite_freshness
 cargo test --test db_targets -- --ignored --test-threads=1    # real Postgres/Oracle; needs TEST_PG_* / TEST_ORA_* (HOST, PORT, USER, PASSWORD, NAME)
-cargo build --release                                         # CI builds db-monitor.exe on windows-latest
+cargo build --release                                         # native build (on Windows: db-monitor.exe with MSVC)
 target/release/db-monitor path/to/config.toml                 # default: config.toml next to the exe
 docker compose run --rm build-windows                         # cross-compile dist/windows/db-monitor.exe (x86_64-pc-windows-gnu, MinGW)
 scripts/sqlite-demo.sh demo.db 10 [secs]                      # create/populate `events` SQLite table for manual runs
@@ -30,5 +30,8 @@ On this Mac the rustup toolchain isn't on PATH: `export PATH=$HOME/.rustup/toolc
 - `alerts.rs` — pure state machine (no UI, unit-tested): `Check` + clock → `Action`s (icon colour, toast, show/close warning window). Owns the 60 s grace before a connection failure turns the icon yellow, via `deadline()`/`on_tick()`.
 - `desktop.rs` — platform glue: tray icon bitmaps, toasts (`notify-rust`, in a thread because `show()` blocks on macOS), single warning window (Windows: `MessageBoxW` in a thread, closed via `FindWindowW`+`WM_CLOSE`; macOS: an `osascript` child), error/info boxes, `db-monitor.lock` single-instance lock.
 - `main.rs` — `windows_subsystem = "windows"` (no console). The main thread runs the `tao` event loop with the `tray-icon` (macOS requires both on the main thread, created at `StartCause::Init`); `monitor::run` runs on its own thread with a current-thread tokio runtime and `shutdown_timeout(2s)`, sending `Check`s to the UI through an `EventLoopProxy`. Menu "Salir" (or Ctrl-C) resolves the shutdown future; fatal errors come back as `UiEvent::Stopped(Err)` → error box, exit 1. `cargo test` never touches UI code.
+
+- `ntfy.rs` — optional `[ntfy]`: every state-change toast is also POSTed (JSON) to ntfy by spawning the system `curl` (no HTTP/TLS crate; `CREATE_NO_WINDOW` on Windows). Priority 4 when the batch sets red/yellow, 3 otherwise.
+- Icons: `assets/logo.svg` / `logo-small.svg` → `assets/build-icons.sh` → `db-monitor.ico` (embedded by `build.rs` via `embed-resource`, only when the target is Windows) and `assets/tray/*.rgba` (`include_bytes!` in `desktop::icon`, no PNG decoder).
 
 Deliberate shortcuts are marked with `ponytail:` comments. Known limitations and pending work are listed in README's "Limitaciones conocidas" and "TODO" sections.
