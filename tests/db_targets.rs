@@ -97,7 +97,7 @@ use db_monitor::config::{Config, Freshness, Logging};
 use db_monitor::monitor::{run, Check};
 
 fn cfg(database: Database) -> Config {
-    Config { database, freshness: fresh(), logging: Logging::default(), ntfy: None }
+    Config { database, freshness: fresh(), logging: Logging::default(), ntfy: None, textos: Default::default() }
 }
 
 /// Ejecuta `run` y dispara el apagado a los `ms` ms; devuelve lo que tardó en volver.

@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 use serde::Deserialize;
 
+use crate::textos::Textos;
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config {
     pub database: Database,
@@ -14,6 +16,9 @@ pub struct Config {
     /// Opcional: reenvía los avisos a ntfy.
     #[serde(default)]
     pub ntfy: Option<Ntfy>,
+    /// `[textos]`: se lee aparte (`Textos::from_toml`) para validar claves y variables.
+    #[serde(skip)]
+    pub textos: Textos,
 }
 
 #[derive(Deserialize, Clone)]
@@ -155,12 +160,18 @@ impl Config {
 pub fn load(path: &Path) -> anyhow::Result<Config> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read config {}", path.display()))?;
-    let raw: toml::Table =
+    let mut raw: toml::Table =
         toml::from_str(&text).with_context(|| format!("invalid config {}", path.display()))?;
     if raw.contains_key("monitor") {
         bail!("invalid config {}: la sección [monitor] ya no existe: mueve interval_secs, query_timeout_secs y backoff_max_secs a [freshness] y borra query/state_file", path.display());
     }
+    let textos = match raw.remove("textos") {
+        None => Textos::default(),
+        Some(toml::Value::Table(t)) => Textos::from_toml(t).with_context(|| format!("invalid config {}", path.display()))?,
+        Some(_) => bail!("invalid config {}: textos debe ser una sección [textos]", path.display()),
+    };
     let mut c: Config = raw.try_into().with_context(|| format!("invalid config {}", path.display()))?;
+    c.textos = textos;
     if let Ok(pw) = std::env::var("DB_PASSWORD") {
         c.database.password = pw;
     }
@@ -168,6 +179,7 @@ pub fn load(path: &Path) -> anyhow::Result<Config> {
         n.token = tk;
     }
     c.validate().with_context(|| format!("invalid config {}", path.display()))?;
+    c.textos.resolver(&c.freshness.table, c.freshness.window_secs);
     let base = path.parent().unwrap_or(Path::new("."));
     c.logging.dir = base.join(&c.logging.dir);
     if c.database.kind == Kind::Sqlite {
@@ -281,12 +293,33 @@ window_secs = 120
         for f in ["config.example.toml", "config.iec104.example.toml"] {
             let p = Path::new(env!("CARGO_MANIFEST_DIR")).join(f);
             load(&p).unwrap_or_else(|e| panic!("{f}: {e:#}"));
-            // con [ntfy] descomentada también debe ser válida
-            let text = std::fs::read_to_string(&p).unwrap().replace("# [ntfy]", "[ntfy]").replace("# topic", "topic").replace("# server", "server");
+            // con todas las opciones comentadas (`# clave = …`, `# [sección]`) activadas también debe ser válida
+            let text: String = std::fs::read_to_string(&p)
+                .unwrap()
+                .lines()
+                .map(|l| match l.strip_prefix("# ") {
+                    Some(r) if r.starts_with('[') || r.split_once(" = ").is_some_and(|(k, _)| k.chars().all(|c| c.is_ascii_lowercase() || c == '_')) => r,
+                    _ => l,
+                })
+                .flat_map(|l| [l, "\n"])
+                .collect();
             let d = tempfile::tempdir().unwrap();
-            let c = load(&write(d.path(), &text)).unwrap_or_else(|e| panic!("{f} con ntfy: {e:#}"));
+            let c = load(&write(d.path(), &text)).unwrap_or_else(|e| panic!("{f} descomentado: {e:#}"));
             assert!(c.ntfy.is_some(), "{f}");
+            assert_ne!(c.textos.app, "db-monitor", "{f}: falta el ejemplo [textos]");
         }
+    }
+
+    #[test]
+    fn textos_loaded_validated_and_resolved() {
+        let d = tempfile::tempdir().unwrap();
+        let c = load(&write(d.path(), MIN)).unwrap();
+        assert_eq!(c.textos.sin_datos_cuerpo, "Sin registros nuevos en events en los últimos 2 minutos");
+        let body = format!("{MIN}[textos]\napp = \"SCADA\"\n[textos.sin_datos]\ntitulo = \"Alerta {{app}} {{tabla}}\"\n");
+        assert_eq!(load(&write(d.path(), &body)).unwrap().textos.sin_datos_titulo, "Alerta SCADA events");
+        let e = load(&write(d.path(), &format!("{MIN}[textos]\nap = \"x\"\n"))).unwrap_err();
+        assert!(format!("{e:#}").contains("textos.ap: clave desconocida"), "{e:#}");
+        assert!(load(&write(d.path(), &format!("textos = 1\n{MIN}"))).is_err());
     }
 
     #[test]

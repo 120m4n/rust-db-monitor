@@ -13,7 +13,7 @@ connect_timeout_secs = 10
 #   sysdate - MAX(fecharegistro) > 0.00001157407407407 * 2 * 3600   (2 horas)
 # Genera: SELECT COUNT(codigohistorialestado) AS n FROM iec104_historialestadoelemento
 #         WHERE fecharegistro >= SYSDATE - 7200/86400
-# n = 0 → icono rojo, toast y ventana de advertencia (que vuelve en cada ciclo mientras siga así).
+# Sin filas → icono rojo, toast y ventana de advertencia (que vuelve en cada ciclo mientras siga así).
 # Si fecharegistro no tiene índice, cada chequeo recorre la tabla: conviene indexarla.
 [freshness]
 table = "iec104_historialestadoelemento"
@@ -29,6 +29,24 @@ backoff_max_secs = 300
 # topic = "iec104-sala-control-x7k2"   # en ntfy.sh los temas son públicos: nombre difícil de adivinar
 # server = "https://ntfy.sh"
 # token = ""                            # mejor: set NTFY_TOKEN=...
+
+# Opcional. Textos personalizados (ejemplo: EnerGis). Lista completa de claves y variables: README, [textos].
+# [textos]
+# app = "Interfaz SCADA - EnerGis"
+# [textos.sin_datos]
+# titulo = "Alerta {app}"
+# cuerpo = "No se han recibido nuevas señales de los equipos en los últimos {ventana}."
+# ventana = "No se han recibido nuevas señales de los equipos en los últimos {ventana}. (Última revisión: {hora})."
+# [textos.recuperado]
+# titulo = "Alerta {app}"
+# cuerpo = "Comunicación recuperada. Ingresando nuevos datos correctamente."
+# [textos.sin_conexion]
+# titulo = "Alerta {app}"
+# cuerpo = "No hay conexión con la base de datos; reintentando."
+# [textos.reconectado]
+# titulo = "Alerta {app}"
+# cuerpo_ok = "Conexión con la base de datos restablecida. Ingresando nuevos datos correctamente."
+# cuerpo_sin_datos = "Conexión con la base de datos restablecida, pero no hay señales nuevas en los últimos {ventana}."
 
 [logging]
 dir = "logs"

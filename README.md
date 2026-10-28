@@ -25,7 +25,7 @@ db-monitor.exe [ruta\a\config.toml] [--tarea]
 
 - Al arrancar sin errores sale un toast "db-monitor en ejecución" que dice dónde está el icono.
 - Los toasts salen **solo al cambiar de estado**, no en cada ciclo.
-- Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Se cierra sola cuando vuelven los datos.
+- Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Si sigue abierta, en Windows se actualiza la hora del último chequeo. Se cierra sola cuando vuelven los datos.
 - Un corte de conexión de menos de 60 s no cambia el icono ni avisa; queda solo en el log.
 - Menú del icono: estado actual (también como tooltip), **Abrir logs** (abre la carpeta) y **Salir**.
 
@@ -95,6 +95,50 @@ Reenvía los avisos a [ntfy](https://ntfy.sh) para recibirlos en el móvil o en 
 | `token` | vacío | Token de acceso para servidores con autenticación. Mejor la variable de entorno `NTFY_TOKEN`, que tiene prioridad |
 
 Usa el `curl` del sistema (incluido en Windows 10/11 y macOS). Si falla el envío (sin red, servidor caído), queda un `WARN ntfy: …` en el log y el programa sigue.
+
+### `[textos]` (opcional)
+
+Cambia los textos que ve el operador: toasts, ventana de advertencia, menú del icono y ventanas de aviso. Cada clave que no se ponga conserva su texto por defecto, así que basta con escribir las que cambian. Los logs y los mensajes de error de configuración no cambian.
+
+Los textos admiten variables entre llaves:
+
+- **En todos:** `{app}` (el nombre de abajo), `{tabla}` (`freshness.table`) y `{ventana}` (`window_secs` en palabras: `3 minutos`, `2 horas`, `45 segundos`).
+- **En algunos:** `{hora}`, `{n}`, `{desde}` y `{donde}`, solo donde lo indica la tabla.
+
+Una clave mal escrita o una variable que ese texto no admite impide arrancar y muestra una ventana de error con el motivo.
+
+| Clave | Dónde aparece | Por defecto | Variables extra |
+|---|---|---|---|
+| `app` | Títulos por defecto, ventanas de error e información | `db-monitor` | ninguna (ni las globales) |
+| `sin_datos.titulo` | Toast "sin datos" y título de la ventana de advertencia | `{app}: sin datos` | |
+| `sin_datos.cuerpo` | Toast "sin datos" | `Sin registros nuevos en {tabla} en los últimos {ventana}` | |
+| `sin_datos.ventana` | Texto de la ventana de advertencia | `Sin registros nuevos en {tabla} en los últimos {ventana}.\nÚltimo chequeo: {hora}` | `{hora}` del último chequeo |
+| `recuperado.titulo` / `.cuerpo` | Toast al volver los datos | `{app}: OK` / `{tabla} volvió a recibir registros` | |
+| `sin_conexion.titulo` / `.cuerpo` | Toast tras 60 s sin conexión | `{app}: sin conexión` / `No se puede conectar a la base de datos; reintentando` | |
+| `reconectado.titulo` | Toast al recuperar la conexión | `{app}: conexión restablecida` | |
+| `reconectado.cuerpo_ok` | Ídem, con datos | `Conexión restablecida · {tabla} OK` | |
+| `reconectado.cuerpo_sin_datos` | Ídem, sin datos | `Conexión restablecida · {tabla} sin registros en {ventana}` | |
+| `inicio.titulo` / `.cuerpo` | Toast al arrancar | `{app} en ejecución` / `Vigilando {tabla}. El icono está en {donde}.` | `{donde}` en `.cuerpo` |
+| `estado.conectando` | Menú y tooltip, al arrancar | `Conectando…` | |
+| `estado.ok` | Menú y tooltip, en verde | `OK · {n} registros en {ventana} · chequeo {hora}` | `{n}`, `{hora}` |
+| `estado.sin_datos` | Menú y tooltip, en rojo | `Sin registros en {ventana} · chequeo {hora}` | `{hora}` |
+| `estado.sin_conexion` | Menú y tooltip, en amarillo | `Sin conexión · reintentando · desde {desde}` | `{desde}` (hora del corte) |
+| `ya_en_ejecucion` | Aviso al abrir una segunda instancia | `{app} ya está en ejecución` | |
+
+```toml
+[textos]
+app = "Interfaz SCADA - EnerGis"
+
+[textos.sin_datos]
+titulo = "Alerta {app}"
+ventana = "No se han recibido nuevas señales de los equipos en los últimos {ventana}. (Última revisión: {hora})."
+
+[textos.recuperado]
+titulo = "Alerta {app}"
+cuerpo = "Comunicación recuperada. Ingresando nuevos datos correctamente."
+```
+
+Un salto de línea se escribe `\n`. ntfy recibe los mismos títulos y textos que los toasts. En Windows conviene que el título de la ventana (`sin_datos.titulo`) no coincida con el de otra ventana abierta: se la busca por el título para actualizarla y cerrarla.
 
 ### `[logging]`
 
@@ -177,7 +221,7 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 - Solo detecta registros **nuevos** (por `time_column`), no UPDATE ni DELETE.
 - Sin TLS en PostgreSQL.
 - Un error de sintaxis en `config.toml` puede mostrar por pantalla la línea afectada, incluida la del password si está ahí.
-- En Windows, el remitente del toast puede aparecer como un programa genérico (no hay instalador que registre un AppUserModelID propio).
+- En Windows el remitente del toast es `[textos].app`: al arrancar se registra en `HKCU\Software\Classes\AppUserModelId\DbMonitor.Alertas` (sin permisos de administrador; `install-task.ps1 -Desinstalar` lo borra). Si el registro falla, los toasts salen como "Windows PowerShell". El toast no lleva icono propio.
 
 ## Desarrollo
 
@@ -193,7 +237,7 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 ## TODO
 
 **Pendiente de verificar**
-- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
+- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), remitente del toast (`[textos].app`), actualización de la hora en la ventana abierta, icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
 - [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
 
 **Funcionalidad**

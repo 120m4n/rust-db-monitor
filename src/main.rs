@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use db_monitor::alerts::{Action, Alerts, Light};
 use db_monitor::monitor::{self, Check};
-use db_monitor::{config, desktop, ntfy};
+use db_monitor::{config, desktop, ntfy, textos};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -25,8 +25,9 @@ fn clock() -> String {
     chrono::Local::now().format("%H:%M").to_string()
 }
 
-fn fatal(msg: &str) -> ! {
-    desktop::error_box(msg);
+/// `app` es el nombre de `[textos]`, o "db-monitor" si la config aún no se leyó.
+fn fatal(app: &str, msg: &str) -> ! {
+    desktop::error_box(app, msg);
     exit(1)
 }
 
@@ -39,17 +40,18 @@ fn main() {
         let exe = std::env::current_exe().unwrap_or_default();
         exe.with_file_name("config.toml")
     });
-    let cfg = config::load(&path).unwrap_or_else(|e| fatal(&format!("{e:#}")));
+    let cfg = config::load(&path).unwrap_or_else(|e| fatal("db-monitor", &format!("{e:#}")));
+    let tx = cfg.textos.clone();
     // se suelta al salir del proceso (exit no corre Drop, pero el SO libera el lock)
     let _lock = match desktop::acquire_lock(&path.parent().unwrap_or(Path::new(".")).join("db-monitor.lock")) {
         Ok(Some(f)) => f,
         Ok(None) => {
             if !tarea {
-                desktop::info_box("db-monitor ya está en ejecución");
+                desktop::info_box(&tx.app, &tx.ya_en_ejecucion);
             }
             exit(0)
         }
-        Err(e) => fatal(&format!("{e:#}")),
+        Err(e) => fatal(&tx.app, &format!("{e:#}")),
     };
 
     // el guard debe soltarse antes de exit para vaciar el log
@@ -60,6 +62,8 @@ fn main() {
         .with(fmt::layer().with_writer(file).with_ansi(false))
         .with(fmt::layer())
         .init();
+
+    desktop::register_app(&tx.app);
 
     let (db, f) = (&cfg.database, &cfg.freshness);
     tracing::info!(
@@ -109,14 +113,14 @@ fn main() {
         let _ = proxy.send_event(UiEvent::Stopped(r.map_err(|e| format!("{e:#}"))));
     });
 
-    let mut alerts = Alerts::new(&f.table, f.window_secs, Instant::now(), &clock());
-    let mut warning = desktop::Warning::new();
+    let mut alerts = Alerts::new(tx.clone(), Instant::now(), &clock());
+    let mut warning = desktop::Warning::new(&tx.sin_datos_titulo);
     let status_item = MenuItem::new(alerts.status(), false, None);
     let logs_item = MenuItem::new("Abrir logs", true, None);
     let quit_item = MenuItem::new("Salir", true, None);
     let menu = Menu::new();
     menu.append_items(&[&status_item, &PredefinedMenuItem::separator(), &logs_item, &quit_item])
-        .unwrap_or_else(|e| fatal(&format!("no se pudo crear el menú: {e}")));
+        .unwrap_or_else(|e| fatal(&tx.app, &format!("no se pudo crear el menú: {e}")));
     let log_dir = cfg.logging.dir.clone();
     let ntfy = cfg.ntfy.clone();
     let mut tray: Option<TrayIcon> = None;
@@ -132,13 +136,13 @@ fn main() {
                     .with_tooltip(alerts.status())
                     .with_icon(desktop::icon(Light::Yellow))
                     .build()
-                    .unwrap_or_else(|e| fatal(&format!("no se pudo crear el icono de bandeja: {e}")));
+                    .unwrap_or_else(|e| fatal(&tx.app, &format!("no se pudo crear el icono de bandeja: {e}")));
                 tray = Some(t);
                 // sin consola, un usuario nuevo no sabe que arrancó: se le dice dónde está el icono
                 let donde = if cfg!(target_os = "macos") { "la barra de menú" } else { "la bandeja del sistema" };
-                let body = format!("Vigilando {}. El icono está en {donde}.", cfg.freshness.table);
-                tracing::info!("aviso: db-monitor en ejecución · {body}");
-                desktop::toast("db-monitor en ejecución", &body);
+                let body = textos::render(&tx.inicio_cuerpo, &[("donde", donde)]);
+                tracing::info!("aviso: {} · {body}", tx.inicio_titulo);
+                desktop::toast(&tx.inicio_titulo, &body);
                 Vec::new()
             }
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) => alerts.on_tick(Instant::now()),
@@ -160,7 +164,7 @@ fn main() {
                     Ok(()) => 0,
                     Err(msg) => {
                         tracing::error!("{msg}");
-                        desktop::error_box(&msg);
+                        desktop::error_box(&tx.app, &msg);
                         1
                     }
                 };

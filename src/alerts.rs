@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use crate::monitor::Check;
+use crate::textos::{render, Textos};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Light {
@@ -23,15 +24,6 @@ pub enum Action {
 /// Tiempo que debe durar un corte antes de avisar.
 pub const GRACE: Duration = Duration::from_secs(60);
 
-/// `7200` → `2 h`, `5400` → `90 min`, `45` → `45 s`.
-pub fn human_window(secs: u64) -> String {
-    match secs {
-        s if s % 3600 == 0 => format!("{} h", s / 3600),
-        s if s % 60 == 0 => format!("{} min", s / 60),
-        s => format!("{s} s"),
-    }
-}
-
 #[derive(Clone, Copy, PartialEq)]
 enum Last {
     Nothing,
@@ -40,8 +32,8 @@ enum Last {
 }
 
 pub struct Alerts {
-    table: String,
-    window: String,
+    /// Ya resueltos (`Textos::resolver`): quedan solo las variables de cada evento.
+    tx: Textos,
     light: Light,
     last: Last,
     last_clock: String,
@@ -53,10 +45,9 @@ pub struct Alerts {
 
 impl Alerts {
     /// `clock` es la hora local `HH:MM`, la calcula quien llama.
-    pub fn new(table: &str, window_secs: u64, now: Instant, clock: &str) -> Self {
+    pub fn new(tx: Textos, now: Instant, clock: &str) -> Self {
         Alerts {
-            table: table.into(),
-            window: human_window(window_secs),
+            tx,
             light: Light::Yellow,
             last: Last::Nothing,
             last_clock: String::new(),
@@ -81,18 +72,18 @@ impl Alerts {
         self.failing_since = None;
         self.announced = false;
 
-        let (t, w) = (&self.table, &self.window);
+        let tx = &self.tx;
         let mut out = Vec::new();
         if light != prev {
             out.push(Action::SetLight(light));
         }
-        let toast = |title: &str, body: String| Action::Toast { title: title.into(), body };
+        let toast = |title: &str, body: &str| Action::Toast { title: title.into(), body: body.into() };
         match light {
             Light::Green => {
                 if reconnected {
-                    out.push(toast("db-monitor: conexión restablecida", format!("Conexión restablecida · {t} OK")));
+                    out.push(toast(&tx.reconectado_titulo, &tx.reconectado_cuerpo_ok));
                 } else if prev == Light::Red {
-                    out.push(toast("db-monitor: OK", format!("{t} volvió a recibir registros")));
+                    out.push(toast(&tx.recuperado_titulo, &tx.recuperado_cuerpo));
                 }
                 // puede quedar abierta si estaba en rojo antes del corte
                 if reconnected || prev == Light::Red {
@@ -101,16 +92,11 @@ impl Alerts {
             }
             _ => {
                 if reconnected {
-                    out.push(toast(
-                        "db-monitor: conexión restablecida",
-                        format!("Conexión restablecida · {t} sin registros en {w}"),
-                    ));
+                    out.push(toast(&tx.reconectado_titulo, &tx.reconectado_cuerpo_sin_datos));
                 } else if prev != Light::Red {
-                    out.push(toast("db-monitor: sin datos", format!("Sin registros nuevos en {t} en los últimos {w}")));
+                    out.push(toast(&tx.sin_datos_titulo, &tx.sin_datos_cuerpo));
                 }
-                out.push(Action::ShowWarning(format!(
-                    "Sin registros nuevos en {t} en los últimos {w}.\nÚltimo chequeo: {clock}"
-                )));
+                out.push(Action::ShowWarning(render(&tx.sin_datos_ventana, &[("hora", clock)])));
             }
         }
         out
@@ -124,10 +110,7 @@ impl Alerts {
                 self.light = Light::Yellow;
                 vec![
                     Action::SetLight(Light::Yellow),
-                    Action::Toast {
-                        title: "db-monitor: sin conexión".into(),
-                        body: "No se puede conectar a la base de datos; reintentando".into(),
-                    },
+                    Action::Toast { title: self.tx.sin_conexion_titulo.clone(), body: self.tx.sin_conexion_cuerpo.clone() },
                 ]
             }
             _ => Vec::new(),
@@ -143,12 +126,12 @@ impl Alerts {
 
     /// Línea de estado del menú y tooltip.
     pub fn status(&self) -> String {
-        let (w, clock) = (&self.window, &self.last_clock);
+        let (tx, hora) = (&self.tx, self.last_clock.as_str());
         match (&self.failing_since, self.announced, self.last) {
-            (Some((_, since)), true, _) => format!("Sin conexión · reintentando · desde {since}"),
-            (_, _, Last::Nothing) => "Conectando…".into(),
-            (_, _, Last::Fresh(n)) => format!("OK · {n} registros en {w} · chequeo {clock}"),
-            (_, _, Last::Stale) => format!("Sin registros en {w} · chequeo {clock}"),
+            (Some((_, since)), true, _) => render(&tx.estado_sin_conexion, &[("desde", since)]),
+            (_, _, Last::Nothing) => tx.estado_conectando.clone(),
+            (_, _, Last::Fresh(n)) => render(&tx.estado_ok, &[("n", &n.to_string()), ("hora", hora)]),
+            (_, _, Last::Stale) => render(&tx.estado_sin_datos, &[("hora", hora)]),
         }
     }
 }
@@ -161,16 +144,22 @@ mod tests {
 
     const S: Duration = Duration::from_secs(1);
 
+    fn alerts(t0: Instant, clock: &str) -> Alerts {
+        let mut tx = Textos::default();
+        tx.resolver("T", 7200);
+        Alerts::new(tx, t0, clock)
+    }
+
     fn toast(title: &str, body: &str) -> Action {
         Toast { title: title.into(), body: body.into() }
     }
 
     fn warning(clock: &str) -> Action {
-        ShowWarning(format!("Sin registros nuevos en T en los últimos 2 h.\nÚltimo chequeo: {clock}"))
+        ShowWarning(format!("Sin registros nuevos en T en los últimos 2 horas.\nÚltimo chequeo: {clock}"))
     }
 
     fn sin_datos() -> Action {
-        toast("db-monitor: sin datos", "Sin registros nuevos en T en los últimos 2 h")
+        toast("db-monitor: sin datos", "Sin registros nuevos en T en los últimos 2 horas")
     }
 
     fn sin_conexion() -> Action {
@@ -179,7 +168,7 @@ mod tests {
 
     /// Alerts en verde (primer chequeo bueno a t0+5s).
     fn green(t0: Instant) -> Alerts {
-        let mut a = Alerts::new("T", 7200, t0, "08:00");
+        let mut a = alerts(t0, "08:00");
         a.on_check(Fresh { n: 1 }, t0 + 5 * S, "08:00");
         a
     }
@@ -191,18 +180,23 @@ mod tests {
     }
 
     #[test]
-    fn human_window_units() {
-        assert_eq!(human_window(7200), "2 h");
-        assert_eq!(human_window(3600), "1 h");
-        assert_eq!(human_window(5400), "90 min");
-        assert_eq!(human_window(45), "45 s");
-        assert_eq!(human_window(90), "90 s");
+    fn custom_texts() {
+        let t0 = Instant::now();
+        let toml_text = "[sin_datos]\ntitulo = \"Alerta\"\nventana = \"Nada en {ventana}. ({hora})\"\n[recuperado]\ncuerpo = \"Volvió\"\n";
+        let mut tx = Textos::from_toml(toml::from_str(toml_text).unwrap()).unwrap();
+        tx.resolver("T", 180);
+        let mut a = Alerts::new(tx, t0, "08:00");
+        a.on_check(Fresh { n: 1 }, t0 + 5 * S, "08:00");
+        let acts = a.on_check(Stale, t0 + 10 * S, "10:40");
+        assert_eq!(acts[1], toast("Alerta", "Sin registros nuevos en T en los últimos 3 minutos"));
+        assert_eq!(acts[2], ShowWarning("Nada en 3 minutos. (10:40)".into()));
+        assert_eq!(a.on_check(Fresh { n: 1 }, t0 + 20 * S, "10:45")[1], toast("db-monitor: OK", "Volvió"));
     }
 
     #[test]
     fn starts_yellow_connecting() {
         let t0 = Instant::now();
-        let a = Alerts::new("T", 7200, t0, "08:00");
+        let a = alerts(t0, "08:00");
         assert_eq!(a.status(), "Conectando…");
         assert_eq!(a.deadline(), Some(t0 + GRACE));
     }
@@ -210,9 +204,9 @@ mod tests {
     #[test]
     fn first_fresh_is_silent() {
         let t0 = Instant::now();
-        let mut a = Alerts::new("T", 7200, t0, "08:00");
+        let mut a = alerts(t0, "08:00");
         assert_eq!(a.on_check(Fresh { n: 42 }, t0 + 5 * S, "08:15"), [SetLight(Light::Green)]);
-        assert_eq!(a.status(), "OK · 42 registros en 2 h · chequeo 08:15");
+        assert_eq!(a.status(), "OK · 42 registros en 2 horas · chequeo 08:15");
         assert_eq!(a.deadline(), None);
     }
 
@@ -224,7 +218,7 @@ mod tests {
             a.on_check(Stale, t0 + 10 * S, "08:20"),
             [SetLight(Light::Red), sin_datos(), warning("08:20")]
         );
-        assert_eq!(a.status(), "Sin registros en 2 h · chequeo 08:20");
+        assert_eq!(a.status(), "Sin registros en 2 horas · chequeo 08:20");
     }
 
     #[test]
@@ -251,7 +245,7 @@ mod tests {
     #[test]
     fn first_stale_at_startup_alerts() {
         let t0 = Instant::now();
-        let mut a = Alerts::new("T", 7200, t0, "08:00");
+        let mut a = alerts(t0, "08:00");
         assert_eq!(
             a.on_check(Stale, t0 + 5 * S, "08:20"),
             [SetLight(Light::Red), sin_datos(), warning("08:20")]
@@ -285,7 +279,7 @@ mod tests {
     #[test]
     fn startup_without_connection_alerts() {
         let t0 = Instant::now();
-        let mut a = Alerts::new("T", 7200, t0, "07:58");
+        let mut a = alerts(t0, "07:58");
         assert_eq!(a.on_tick(t0 + GRACE), [SetLight(Light::Yellow), sin_conexion()]);
         assert_eq!(a.status(), "Sin conexión · reintentando · desde 07:58");
     }
@@ -314,7 +308,7 @@ mod tests {
             a.on_check(Stale, t0 + 100 * S, "09:05"),
             [
                 SetLight(Light::Red),
-                toast("db-monitor: conexión restablecida", "Conexión restablecida · T sin registros en 2 h"),
+                toast("db-monitor: conexión restablecida", "Conexión restablecida · T sin registros en 2 horas"),
                 warning("09:05")
             ]
         );
