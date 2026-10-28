@@ -102,7 +102,7 @@ Cambia los textos que ve el operador: toasts, ventana de advertencia, menú del 
 
 Los textos admiten variables entre llaves:
 
-- **En todos:** `{app}` (el nombre de abajo), `{tabla}` (`freshness.table`) y `{ventana}` (`window_secs` en palabras: `3 minutos`, `2 horas`, `45 segundos`).
+- **En todos:** `{app}` (el nombre de abajo), `{tabla}` (`freshness.table`) y `{periodo}` (`window_secs` en palabras: `3 minutos`, `2 horas`, `45 segundos`).
 - **En algunos:** `{hora}`, `{n}`, `{desde}` y `{donde}`, solo donde lo indica la tabla.
 
 Una clave mal escrita o una variable que ese texto no admite impide arrancar y muestra una ventana de error con el motivo.
@@ -111,17 +111,17 @@ Una clave mal escrita o una variable que ese texto no admite impide arrancar y m
 |---|---|---|---|
 | `app` | Títulos por defecto, ventanas de error e información | `db-monitor` | ninguna (ni las globales) |
 | `sin_datos.titulo` | Toast "sin datos" y título de la ventana de advertencia | `{app}: sin datos` | |
-| `sin_datos.cuerpo` | Toast "sin datos" | `Sin registros nuevos en {tabla} en los últimos {ventana}` | |
-| `sin_datos.ventana` | Texto de la ventana de advertencia | `Sin registros nuevos en {tabla} en los últimos {ventana}.\nÚltimo chequeo: {hora}` | `{hora}` del último chequeo |
+| `sin_datos.cuerpo` | Toast "sin datos" | `Sin registros nuevos en {tabla} en los últimos {periodo}` | |
+| `sin_datos.ventana` | Texto de la ventana de advertencia | `Sin registros nuevos en {tabla} en los últimos {periodo}.\nÚltimo chequeo: {hora}` | `{hora}` del último chequeo |
 | `recuperado.titulo` / `.cuerpo` | Toast al volver los datos | `{app}: OK` / `{tabla} volvió a recibir registros` | |
 | `sin_conexion.titulo` / `.cuerpo` | Toast tras 60 s sin conexión | `{app}: sin conexión` / `No se puede conectar a la base de datos; reintentando` | |
 | `reconectado.titulo` | Toast al recuperar la conexión | `{app}: conexión restablecida` | |
 | `reconectado.cuerpo_ok` | Ídem, con datos | `Conexión restablecida · {tabla} OK` | |
-| `reconectado.cuerpo_sin_datos` | Ídem, sin datos | `Conexión restablecida · {tabla} sin registros en {ventana}` | |
+| `reconectado.cuerpo_sin_datos` | Ídem, sin datos | `Conexión restablecida · {tabla} sin registros en {periodo}` | |
 | `inicio.titulo` / `.cuerpo` | Toast al arrancar | `{app} en ejecución` / `Vigilando {tabla}. El icono está en {donde}.` | `{donde}` en `.cuerpo` |
 | `estado.conectando` | Menú y tooltip, al arrancar | `Conectando…` | |
-| `estado.ok` | Menú y tooltip, en verde | `OK · {n} registros en {ventana} · chequeo {hora}` | `{n}`, `{hora}` |
-| `estado.sin_datos` | Menú y tooltip, en rojo | `Sin registros en {ventana} · chequeo {hora}` | `{hora}` |
+| `estado.ok` | Menú y tooltip, en verde | `OK · {n} registros en {periodo} · chequeo {hora}` | `{n}`, `{hora}` |
+| `estado.sin_datos` | Menú y tooltip, en rojo | `Sin registros en {periodo} · chequeo {hora}` | `{hora}` |
 | `estado.sin_conexion` | Menú y tooltip, en amarillo | `Sin conexión · reintentando · desde {desde}` | `{desde}` (hora del corte) |
 | `ya_en_ejecucion` | Aviso al abrir una segunda instancia | `{app} ya está en ejecución` | |
 
@@ -131,7 +131,7 @@ app = "Interfaz SCADA - EnerGis"
 
 [textos.sin_datos]
 titulo = "Alerta {app}"
-ventana = "No se han recibido nuevas señales de los equipos en los últimos {ventana}. (Última revisión: {hora})."
+ventana = "No se han recibido nuevas señales de los equipos en los últimos {periodo}. (Última revisión: {hora})."
 
 [textos.recuperado]
 titulo = "Alerta {app}"

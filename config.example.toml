@@ -32,13 +32,13 @@ backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 
 # token = ""                        # solo servidores con autenticación; mejor: variable de entorno NTFY_TOKEN
 
 # Opcional. Cambia los textos de los avisos; lo que no se ponga conserva el texto por defecto.
-# {app}, {tabla} y {ventana} ("2 horas") valen en todos. Lista completa de claves y variables: README, [textos].
+# {app}, {tabla} y {periodo} ("2 horas") valen en todos. Lista completa de claves y variables: README, [textos].
 # [textos]
 # app = "Sala de control"            # nombre en títulos, menú y ventanas de error (por defecto "db-monitor")
 # [textos.sin_datos]
 # titulo = "{app}: sin datos"        # toast y título de la ventana de advertencia
-# cuerpo = "Sin registros nuevos en {tabla} en los últimos {ventana}"
-# ventana = "Sin registros nuevos en {tabla} en los últimos {ventana}.\nÚltimo chequeo: {hora}"
+# cuerpo = "Sin registros nuevos en {tabla} en los últimos {periodo}"
+# ventana = "Sin registros nuevos en {tabla} en los últimos {periodo}.\nÚltimo chequeo: {hora}"
 # [textos.recuperado]
 # titulo = "{app}: OK"
 # cuerpo = "{tabla} volvió a recibir registros"

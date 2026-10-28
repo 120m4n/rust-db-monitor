@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn custom_texts() {
         let t0 = Instant::now();
-        let toml_text = "[sin_datos]\ntitulo = \"Alerta\"\nventana = \"Nada en {ventana}. ({hora})\"\n[recuperado]\ncuerpo = \"Volvió\"\n";
+        let toml_text = "[sin_datos]\ntitulo = \"Alerta\"\nventana = \"Nada en {periodo}. ({hora})\"\n[recuperado]\ncuerpo = \"Volvió\"\n";
         let mut tx = Textos::from_toml(toml::from_str(toml_text).unwrap()).unwrap();
         tx.resolver("T", 180);
         let mut a = Alerts::new(tx, t0, "08:00");

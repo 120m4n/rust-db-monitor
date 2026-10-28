@@ -1,10 +1,10 @@
 //! Textos visibles (toasts, ventana de advertencia, menú) personalizables con `[textos]` en config.toml.
-//! Son plantillas con `{variables}`: `{app}`, `{tabla}` y `{ventana}` valen en todas (se resuelven al
+//! Son plantillas con `{variables}`: `{app}`, `{tabla}` y `{periodo}` valen en todas (se resuelven al
 //! cargar la config); el resto solo donde se indica en `campos()`.
 
 use anyhow::bail;
 
-const GLOBALES: &[&str] = &["app", "tabla", "ventana"];
+const GLOBALES: &[&str] = &["app", "tabla", "periodo"];
 
 #[derive(Clone, Debug)]
 pub struct Textos {
@@ -34,20 +34,20 @@ impl Default for Textos {
         Textos {
             app: s("db-monitor"),
             sin_datos_titulo: s("{app}: sin datos"),
-            sin_datos_cuerpo: s("Sin registros nuevos en {tabla} en los últimos {ventana}"),
-            sin_datos_ventana: s("Sin registros nuevos en {tabla} en los últimos {ventana}.\nÚltimo chequeo: {hora}"),
+            sin_datos_cuerpo: s("Sin registros nuevos en {tabla} en los últimos {periodo}"),
+            sin_datos_ventana: s("Sin registros nuevos en {tabla} en los últimos {periodo}.\nÚltimo chequeo: {hora}"),
             recuperado_titulo: s("{app}: OK"),
             recuperado_cuerpo: s("{tabla} volvió a recibir registros"),
             sin_conexion_titulo: s("{app}: sin conexión"),
             sin_conexion_cuerpo: s("No se puede conectar a la base de datos; reintentando"),
             reconectado_titulo: s("{app}: conexión restablecida"),
             reconectado_cuerpo_ok: s("Conexión restablecida · {tabla} OK"),
-            reconectado_cuerpo_sin_datos: s("Conexión restablecida · {tabla} sin registros en {ventana}"),
+            reconectado_cuerpo_sin_datos: s("Conexión restablecida · {tabla} sin registros en {periodo}"),
             inicio_titulo: s("{app} en ejecución"),
             inicio_cuerpo: s("Vigilando {tabla}. El icono está en {donde}."),
             estado_conectando: s("Conectando…"),
-            estado_ok: s("OK · {n} registros en {ventana} · chequeo {hora}"),
-            estado_sin_datos: s("Sin registros en {ventana} · chequeo {hora}"),
+            estado_ok: s("OK · {n} registros en {periodo} · chequeo {hora}"),
+            estado_sin_datos: s("Sin registros en {periodo} · chequeo {hora}"),
             estado_sin_conexion: s("Sin conexión · reintentando · desde {desde}"),
             ya_en_ejecucion: s("{app} ya está en ejecución"),
         }
@@ -115,10 +115,10 @@ impl Textos {
 
     /// Sustituye las variables globales; se llama una vez al cargar la config.
     pub fn resolver(&mut self, tabla: &str, window_secs: u64) {
-        let (app, ventana) = (self.app.clone(), human_window(window_secs));
+        let (app, periodo) = (self.app.clone(), human_window(window_secs));
         for (clave, texto, _) in self.campos() {
             if clave != "app" {
-                *texto = render(texto, &[("app", &app), ("tabla", tabla), ("ventana", &ventana)]);
+                *texto = render(texto, &[("app", &app), ("tabla", tabla), ("periodo", &periodo)]);
             }
         }
     }
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn rejects_unknown_or_misplaced_variable() {
         let e = de("[sin_datos]\ntitulo = \"x {hora}\"\n").unwrap_err();
-        assert!(e.to_string().contains("variable {hora} desconocida; admite: {app} {tabla} {ventana}"), "{e}");
+        assert!(e.to_string().contains("variable {hora} desconocida; admite: {app} {tabla} {periodo}"), "{e}");
         assert!(de("[estado]\nok = \"{n} {hora} {fecha}\"\n").is_err());
         assert!(de("app = \"{app}\"\n").is_err());
         assert!(de("[estado]\nok = \"{n} {hora} {tabla}\"\n").is_ok());

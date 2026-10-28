@@ -35,8 +35,8 @@ backoff_max_secs = 300
 # app = "Interfaz SCADA - EnerGis"
 # [textos.sin_datos]
 # titulo = "Alerta {app}"
-# cuerpo = "No se han recibido nuevas señales de los equipos en los últimos {ventana}."
-# ventana = "No se han recibido nuevas señales de los equipos en los últimos {ventana}. (Última revisión: {hora})."
+# cuerpo = "No se han recibido nuevas señales de los equipos en los últimos {periodo}."
+# ventana = "No se han recibido nuevas señales de los equipos en los últimos {periodo}. (Última revisión: {hora})."
 # [textos.recuperado]
 # titulo = "Alerta {app}"
 # cuerpo = "Comunicación recuperada. Ingresando nuevos datos correctamente."
@@ -46,7 +46,7 @@ backoff_max_secs = 300
 # [textos.reconectado]
 # titulo = "Alerta {app}"
 # cuerpo_ok = "Conexión con la base de datos restablecida. Ingresando nuevos datos correctamente."
-# cuerpo_sin_datos = "Conexión con la base de datos restablecida, pero no hay señales nuevas en los últimos {ventana}."
+# cuerpo_sin_datos = "Conexión con la base de datos restablecida, pero no hay señales nuevas en los últimos {periodo}."
 
 [logging]
 dir = "logs"
