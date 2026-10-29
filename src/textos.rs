@@ -1,14 +1,19 @@
 //! Textos visibles (toasts, ventana de advertencia, menú) personalizables con `[textos]` en config.toml.
 //! Son plantillas con `{variables}`: `{app}`, `{tabla}` y `{periodo}` valen en todas (se resuelven al
-//! cargar la config); el resto solo donde se indica en `campos()`.
+//! cargar la config); el resto solo donde se indica en `campos()`. `app` y `tabla` son nombres, no
+//! plantillas: lo que muestran `{app}` y `{tabla}`.
 
 use anyhow::bail;
 
 const GLOBALES: &[&str] = &["app", "tabla", "periodo"];
+/// Claves que definen el valor de una variable global: no admiten variables.
+const NOMBRES: &[&str] = &["app", "tabla"];
 
 #[derive(Clone, Debug)]
 pub struct Textos {
     pub app: String,
+    /// Descripción para el operador de `freshness.table` (p. ej. "señales de los equipos"); vacía = el nombre.
+    pub tabla: String,
     pub sin_datos_titulo: String,
     pub sin_datos_cuerpo: String,
     pub sin_datos_ventana: String,
@@ -33,6 +38,7 @@ impl Default for Textos {
         let s = |x: &str| x.to_string();
         Textos {
             app: s("db-monitor"),
+            tabla: String::new(),
             sin_datos_titulo: s("{app}: sin datos"),
             sin_datos_cuerpo: s("Sin registros nuevos en {tabla} en los últimos {periodo}"),
             sin_datos_ventana: s("Sin registros nuevos en {tabla} en los últimos {periodo}.\nÚltimo chequeo: {hora}"),
@@ -58,9 +64,10 @@ type Campo<'a> = (&'static str, &'a mut String, &'static [&'static str]);
 
 impl Textos {
     /// Clave en `[textos]`, texto y variables propias (además de las globales).
-    fn campos(&mut self) -> [Campo<'_>; 18] {
+    fn campos(&mut self) -> [Campo<'_>; 19] {
         [
             ("app", &mut self.app, &[]),
+            ("tabla", &mut self.tabla, &[]),
             ("sin_datos.titulo", &mut self.sin_datos_titulo, &[]),
             ("sin_datos.cuerpo", &mut self.sin_datos_cuerpo, &[]),
             ("sin_datos.ventana", &mut self.sin_datos_ventana, &["hora"]),
@@ -97,11 +104,11 @@ impl Textos {
         }
         for (clave, texto, propias) in &campos {
             for v in variables(texto) {
-                // {app} no puede usarse dentro del propio app
-                let ok = propias.contains(&v) || (*clave != "app" && GLOBALES.contains(&v));
+                let nombre = NOMBRES.contains(clave);
+                let ok = propias.contains(&v) || (!nombre && GLOBALES.contains(&v));
                 if !ok {
                     let mut admite: Vec<_> = propias.iter().map(|p| format!("{{{p}}}")).collect();
-                    if *clave != "app" {
+                    if !nombre {
                         admite.splice(0..0, GLOBALES.iter().map(|g| format!("{{{g}}}")));
                     }
                     let admite = if admite.is_empty() { "ninguna".into() } else { admite.join(" ") };
@@ -114,11 +121,15 @@ impl Textos {
     }
 
     /// Sustituye las variables globales; se llama una vez al cargar la config.
+    /// `tabla` es `freshness.table`: se muestra solo si `[textos].tabla` no da una descripción.
     pub fn resolver(&mut self, tabla: &str, window_secs: u64) {
-        let (app, periodo) = (self.app.clone(), human_window(window_secs));
+        if self.tabla.is_empty() {
+            self.tabla = tabla.into();
+        }
+        let (app, tabla, periodo) = (self.app.clone(), self.tabla.clone(), human_window(window_secs));
         for (clave, texto, _) in self.campos() {
-            if clave != "app" {
-                *texto = render(texto, &[("app", &app), ("tabla", tabla), ("periodo", &periodo)]);
+            if !NOMBRES.contains(&clave) {
+                *texto = render(texto, &[("app", &app), ("tabla", &tabla), ("periodo", &periodo)]);
             }
         }
     }
@@ -205,6 +216,19 @@ mod tests {
         assert_eq!(t.sin_datos_titulo, "Alerta SCADA");
         assert_eq!(t.sin_datos_cuerpo, "Sin registros nuevos en T en los últimos 2 horas");
         assert_eq!(t.recuperado_titulo, "SCADA: OK");
+    }
+
+    #[test]
+    fn tabla_description_replaces_table_name() {
+        let mut t = de("tabla = \"señales de los equipos\"\n").unwrap();
+        t.resolver("iec104_historialestadoelemento", 180);
+        assert_eq!(t.recuperado_cuerpo, "señales de los equipos volvió a recibir registros");
+        assert!(!t.inicio_cuerpo.contains("iec104"), "{}", t.inicio_cuerpo);
+        let mut t = Textos::default();
+        t.resolver("iec104_historialestadoelemento", 180);
+        assert_eq!(t.recuperado_cuerpo, "iec104_historialestadoelemento volvió a recibir registros");
+        assert!(de("tabla = \"{tabla}\"\n").is_err());
+        assert!(de("tabla = \"{app}\"\n").is_err());
     }
 
     #[test]

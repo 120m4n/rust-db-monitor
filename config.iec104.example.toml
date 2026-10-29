@@ -33,6 +33,7 @@ backoff_max_secs = 300
 # Opcional. Textos personalizados (ejemplo: EnerGis). Lista completa de claves y variables: README, [textos].
 # [textos]
 # app = "Interfaz SCADA - EnerGis"
+# tabla = "las señales de los equipos IEC-104"   # en vez de iec104_historialestadoelemento
 # [textos.sin_datos]
 # titulo = "Alerta {app}"
 # cuerpo = "No se han recibido nuevas señales de los equipos en los últimos {periodo}."

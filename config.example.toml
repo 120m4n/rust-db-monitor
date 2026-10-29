@@ -35,6 +35,7 @@ backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 
 # {app}, {tabla} y {periodo} ("2 horas") valen en todos. Lista completa de claves y variables: README, [textos].
 # [textos]
 # app = "Sala de control"            # nombre en títulos, menú y ventanas de error (por defecto "db-monitor")
+# tabla = "los eventos de la planta"  # lo que muestra {tabla} en vez del nombre técnico de la tabla
 # [textos.sin_datos]
 # titulo = "{app}: sin datos"        # toast y título de la ventana de advertencia
 # cuerpo = "Sin registros nuevos en {tabla} en los últimos {periodo}"

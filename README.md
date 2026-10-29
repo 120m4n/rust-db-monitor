@@ -98,11 +98,11 @@ Usa el `curl` del sistema (incluido en Windows 10/11 y macOS). Si falla el enví
 
 ### `[textos]` (opcional)
 
-Cambia los textos que ve el operador: toasts, ventana de advertencia, menú del icono y ventanas de aviso. Cada clave que no se ponga conserva su texto por defecto, así que basta con escribir las que cambian. Los logs y los mensajes de error de configuración no cambian.
+Cambia los textos que ve el operador: toasts, ventana de advertencia, menú del icono y ventanas de aviso. Con `tabla` el operador lee una descripción en vez del nombre técnico de la tabla (los logs siguen usando el nombre real). Cada clave que no se ponga conserva su texto por defecto, así que basta con escribir las que cambian. Los logs y los mensajes de error de configuración no cambian.
 
 Los textos admiten variables entre llaves:
 
-- **En todos:** `{app}` (el nombre de abajo), `{tabla}` (`freshness.table`) y `{periodo}` (`window_secs` en palabras: `3 minutos`, `2 horas`, `45 segundos`).
+- **En todos:** `{app}` (el nombre de abajo), `{tabla}` (la descripción `tabla` de abajo o, si no se pone, el nombre de `freshness.table`) y `{periodo}` (`window_secs` en palabras: `3 minutos`, `2 horas`, `45 segundos`).
 - **En algunos:** `{hora}`, `{n}`, `{desde}` y `{donde}`, solo donde lo indica la tabla.
 
 Una clave mal escrita o una variable que ese texto no admite impide arrancar y muestra una ventana de error con el motivo.
@@ -110,6 +110,7 @@ Una clave mal escrita o una variable que ese texto no admite impide arrancar y m
 | Clave | Dónde aparece | Por defecto | Variables extra |
 |---|---|---|---|
 | `app` | Títulos por defecto, ventanas de error e información | `db-monitor` | ninguna (ni las globales) |
+| `tabla` | Donde se use `{tabla}`: descripción para el operador, p. ej. `las señales de los equipos IEC-104` | el nombre de `freshness.table` | ninguna (ni las globales) |
 | `sin_datos.titulo` | Toast "sin datos" y título de la ventana de advertencia | `{app}: sin datos` | |
 | `sin_datos.cuerpo` | Toast "sin datos" | `Sin registros nuevos en {tabla} en los últimos {periodo}` | |
 | `sin_datos.ventana` | Texto de la ventana de advertencia | `Sin registros nuevos en {tabla} en los últimos {periodo}.\nÚltimo chequeo: {hora}` | `{hora}` del último chequeo |
