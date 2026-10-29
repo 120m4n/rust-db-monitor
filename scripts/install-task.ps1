@@ -40,7 +40,8 @@ $Tarea.Task.Principals.Principal.UserId = $Usuario
 $Tarea.Task.Actions.Exec.Command = $Exe
 $Tarea.Task.Actions.Exec.WorkingDirectory = $Dir
 
-Register-ScheduledTask -TaskName $Nombre -Xml $Tarea.OuterXml -Force | Out-Null
+# solo el elemento <Task>: una declaracion encoding="UTF-8" en el texto hace fallar el registro
+Register-ScheduledTask -TaskName $Nombre -Xml $Tarea.Task.OuterXml -Force | Out-Null
 Write-Host "Tarea '$Nombre' registrada para $Usuario -> $Exe"
 Write-Host "Arranca al iniciar sesion y se relanza cada 5 min si no esta corriendo."
 Write-Host "Para pararla del todo: deshabilita la tarea o usa -Desinstalar ('Salir' solo la cierra hasta el siguiente relanzamiento)."

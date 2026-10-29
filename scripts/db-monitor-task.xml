@@ -1,17 +1,19 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Tarea programada de db-monitor: arranca al iniciar sesión, en la sesión del usuario
-  (InteractiveToken: con escritorio, así se ven el icono, los toasts y la ventana de advertencia).
-  Un servicio no serviría: corre en la sesión 0, sin escritorio.
+  Sin declaracion <?xml ... encoding?> y solo ASCII: Register-ScheduledTask recibe el XML como texto
+  UTF-16 y rechaza otra codificacion declarada ("unable to switch the encoding").
+
+  Tarea programada de db-monitor: arranca al iniciar sesion, en la sesion del usuario
+  (InteractiveToken: con escritorio, asi se ven el icono, los toasts y la ventana de advertencia).
+  Un servicio no serviria: corre en la sesion 0, sin escritorio.
 
   Lo normal es registrarla con install-task.ps1, que rellena usuario y rutas.
-  Para importarla a mano (Programador de tareas → Importar tarea) cambia antes
+  Para importarla a mano (Programador de tareas -> Importar tarea) cambia antes
   EQUIPO\usuario y C:\db-monitor.
 
-  - Repetición cada 5 min + IgnoreNew: si el proceso murió (o se usó "Salir"), vuelve a lanzarse;
+  - Repeticion cada 5 min + IgnoreNew: si el proceso murio (o se uso "Salir"), vuelve a lanzarse;
     si sigue vivo, no se lanza otro.
-  - Retraso de 30 s al iniciar sesión: da tiempo a que exista la bandeja del sistema.
-  - ExecutionTimeLimit PT0S: sin límite (por defecto Windows la mata a las 72 h).
+  - Retraso de 30 s al iniciar sesion: da tiempo a que exista la bandeja del sistema.
+  - ExecutionTimeLimit PT0S: sin limite (por defecto Windows la mata a las 72 h).
 -->
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -61,7 +63,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>C:\db-monitor\db-monitor.exe</Command>
-      <!-- si ya está corriendo (p. ej. abierto a mano), sale sin el aviso "ya está en ejecución" -->
+      <!-- si ya esta corriendo (p. ej. abierto a mano), sale sin el aviso "ya esta en ejecucion" -->
       <Arguments>--tarea</Arguments>
       <WorkingDirectory>C:\db-monitor</WorkingDirectory>
     </Exec>
