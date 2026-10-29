@@ -21,12 +21,13 @@ db-monitor.exe [ruta\a\config.toml] [--tarea]
 |---|---|---|
 | Verde | La tabla recibe datos | Toast si venía de rojo o de una caída de conexión |
 | Rojo | Conectado, pero sin filas en `window_secs` | Toast + ventana de advertencia |
-| Amarillo | Sin conexión a la base durante más de 60 s (también "Conectando…" al arrancar) | Toast |
+| Amarillo | Sin conexión a la base (también "Conectando…" al arrancar) | Toast, y se repite en cada ciclo mientras siga caída |
 
 - Al arrancar sin errores sale un toast "db-monitor en ejecución" que dice dónde está el icono.
 - Los toasts salen **solo al cambiar de estado**, no en cada ciclo.
 - Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Si sigue abierta, en Windows se actualiza la hora del último chequeo. Se cierra sola cuando vuelven los datos.
-- Un corte de conexión de menos de 60 s no cambia el icono ni avisa; queda solo en el log.
+- **Caída de la base:** avisa (toast y ntfy, prioridad alta) en cuanto falla la conexión o una consulta, y repite el aviso como mucho una vez por `interval_secs` mientras siga caída; los reintentos más seguidos del backoff no lo repiten. Al volver, toast "conexión restablecida".
+- La caída se detecta en el siguiente chequeo: puede tardar hasta `interval_secs`, más `query_timeout_secs` si la consulta se queda colgada. Para enterarse antes, baja `interval_secs`.
 - Menú del icono: estado actual (también como tooltip), **Abrir logs** (abre la carpeta) y **Salir**.
 
 ## Arranque automático (Windows)
@@ -115,7 +116,7 @@ Una clave mal escrita o una variable que ese texto no admite impide arrancar y m
 | `sin_datos.cuerpo` | Toast "sin datos" | `Sin registros nuevos en {tabla} en los últimos {periodo}` | |
 | `sin_datos.ventana` | Texto de la ventana de advertencia | `Sin registros nuevos en {tabla} en los últimos {periodo}.\nÚltimo chequeo: {hora}` | `{hora}` del último chequeo |
 | `recuperado.titulo` / `.cuerpo` | Toast al volver los datos | `{app}: OK` / `{tabla} volvió a recibir registros` | |
-| `sin_conexion.titulo` / `.cuerpo` | Toast tras 60 s sin conexión | `{app}: sin conexión` / `No se puede conectar a la base de datos; reintentando` | |
+| `sin_conexion.titulo` / `.cuerpo` | Toast al caer la conexión, repetido en cada ciclo | `{app}: sin conexión` / `No se puede conectar a la base de datos desde las {desde}; reintentando` | `{desde}` (hora del corte) |
 | `reconectado.titulo` | Toast al recuperar la conexión | `{app}: conexión restablecida` | |
 | `reconectado.cuerpo_ok` | Ídem, con datos | `Conexión restablecida · {tabla} OK` | |
 | `reconectado.cuerpo_sin_datos` | Ídem, sin datos | `Conexión restablecida · {tabla} sin registros en {periodo}` | |

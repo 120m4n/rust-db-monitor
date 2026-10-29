@@ -114,7 +114,7 @@ Con el monitor corriendo, abre otra terminal en la raíz del repo:
 | Una sola instancia | Lanza `./db-monitor` otra vez | Ventana "db-monitor ya está en ejecución"; la segunda sale |
 | Menú | Clic en el icono → Abrir logs | Se abre la carpeta `logs/` |
 | Apagado ordenado | Clic en el icono → Salir | El icono desaparece; el log termina en `INFO apagado` |
-| Sin conexión | En otra carpeta, config `postgres` a `127.0.0.1` puerto `1` | Amarillo "Conectando…"; a los 60 s toast "sin conexión" |
+| Sin conexión | En otra carpeta, config `postgres` a `127.0.0.1` puerto `1` | Amarillo; toast "sin conexión" en el primer intento y de nuevo en cada ciclo (`interval_secs`) |
 | Logs diarios | `ls logs/` | `db-monitor.log.AAAA-MM-DD`, con una línea `aviso: …` por cada toast |
 | Error de configuración | Cambia `table = "events"` por `"eventos"` y ejecuta | Ventana de error `freshness table 'eventos' ... no such table`; sale con código 1 |
 

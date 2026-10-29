@@ -21,9 +21,6 @@ pub enum Action {
     CloseWarning,
 }
 
-/// Tiempo que debe durar un corte antes de avisar.
-pub const GRACE: Duration = Duration::from_secs(60);
-
 #[derive(Clone, Copy, PartialEq)]
 enum Last {
     Nothing,
@@ -39,38 +36,42 @@ pub struct Alerts {
     last_clock: String,
     /// Primer fallo del corte en curso (o el arranque, hasta el primer resultado bueno).
     failing_since: Option<(Instant, String)>,
-    /// Ya se avisó "sin conexión".
-    announced: bool,
+    /// Último aviso "sin conexión" del corte en curso; `None` = aún no avisado.
+    announced: Option<Instant>,
+    /// Durante un corte, el aviso se repite como mucho una vez cada `repeat` (`interval_secs`).
+    repeat: Duration,
 }
 
 impl Alerts {
     /// `clock` es la hora local `HH:MM`, la calcula quien llama.
-    pub fn new(tx: Textos, now: Instant, clock: &str) -> Self {
+    pub fn new(tx: Textos, repeat: Duration, now: Instant, clock: &str) -> Self {
         Alerts {
             tx,
             light: Light::Yellow,
             last: Last::Nothing,
             last_clock: String::new(),
             failing_since: Some((now, clock.into())),
-            announced: false,
+            announced: None,
+            repeat,
         }
+    }
+
+    pub fn light(&self) -> Light {
+        self.light
     }
 
     pub fn on_check(&mut self, c: Check, now: Instant, clock: &str) -> Vec<Action> {
         let (light, last) = match c {
-            Check::Failed => {
-                self.failing_since.get_or_insert_with(|| (now, clock.into()));
-                return Vec::new();
-            }
+            Check::Failed => return self.on_failed(now, clock),
             Check::Fresh { n } => (Light::Green, Last::Fresh(n)),
             Check::Stale => (Light::Red, Last::Stale),
         };
-        let (prev, reconnected) = (self.light, self.announced);
+        let (prev, reconnected) = (self.light, self.announced.is_some());
         self.light = light;
         self.last = last;
         self.last_clock = clock.into();
         self.failing_since = None;
-        self.announced = false;
+        self.announced = None;
 
         let tx = &self.tx;
         let mut out = Vec::new();
@@ -102,32 +103,31 @@ impl Alerts {
         out
     }
 
-    /// Llamar al llegar a `deadline()`: si el corte sigue, se anuncia.
-    pub fn on_tick(&mut self, now: Instant) -> Vec<Action> {
-        match self.deadline() {
-            Some(d) if now >= d => {
-                self.announced = true;
-                self.light = Light::Yellow;
-                vec![
-                    Action::SetLight(Light::Yellow),
-                    Action::Toast { title: self.tx.sin_conexion_titulo.clone(), body: self.tx.sin_conexion_cuerpo.clone() },
-                ]
-            }
-            _ => Vec::new(),
+    /// Sin conexión: avisa en el primer fallo y lo repite en cada ciclo (`repeat`) mientras dure.
+    /// Los reintentos con backoff llegan más seguidos; esos no repiten el aviso.
+    fn on_failed(&mut self, now: Instant, clock: &str) -> Vec<Action> {
+        let since = self.failing_since.get_or_insert_with(|| (now, clock.into())).1.clone();
+        if self.announced.is_some_and(|t| now.duration_since(t) < self.repeat) {
+            return Vec::new();
         }
-    }
-
-    pub fn deadline(&self) -> Option<Instant> {
-        match &self.failing_since {
-            Some((t, _)) if !self.announced => Some(*t + GRACE),
-            _ => None,
+        self.announced = Some(now);
+        let mut out = Vec::new();
+        if self.light != Light::Yellow {
+            self.light = Light::Yellow;
+            out.push(Action::SetLight(Light::Yellow));
         }
+        let desde = [("desde", since.as_str())];
+        out.push(Action::Toast {
+            title: render(&self.tx.sin_conexion_titulo, &desde),
+            body: render(&self.tx.sin_conexion_cuerpo, &desde),
+        });
+        out
     }
 
     /// Línea de estado del menú y tooltip.
     pub fn status(&self) -> String {
         let (tx, hora) = (&self.tx, self.last_clock.as_str());
-        match (&self.failing_since, self.announced, self.last) {
+        match (&self.failing_since, self.announced.is_some(), self.last) {
             (Some((_, since)), true, _) => render(&tx.estado_sin_conexion, &[("desde", since)]),
             (_, _, Last::Nothing) => tx.estado_conectando.clone(),
             (_, _, Last::Fresh(n)) => render(&tx.estado_ok, &[("n", &n.to_string()), ("hora", hora)]),
@@ -143,11 +143,13 @@ mod tests {
     use Check::*;
 
     const S: Duration = Duration::from_secs(1);
+    /// `interval_secs` de las pruebas: cada cuánto se repite el aviso de caída.
+    const REPEAT: Duration = Duration::from_secs(300);
 
     fn alerts(t0: Instant, clock: &str) -> Alerts {
         let mut tx = Textos::default();
         tx.resolver("T", 7200);
-        Alerts::new(tx, t0, clock)
+        Alerts::new(tx, REPEAT, t0, clock)
     }
 
     fn toast(title: &str, body: &str) -> Action {
@@ -162,8 +164,8 @@ mod tests {
         toast("db-monitor: sin datos", "Sin registros nuevos en T en los últimos 2 horas")
     }
 
-    fn sin_conexion() -> Action {
-        toast("db-monitor: sin conexión", "No se puede conectar a la base de datos; reintentando")
+    fn sin_conexion(desde: &str) -> Action {
+        toast("db-monitor: sin conexión", &format!("No se puede conectar a la base de datos desde las {desde}; reintentando"))
     }
 
     /// Alerts en verde (primer chequeo bueno a t0+5s).
@@ -173,10 +175,9 @@ mod tests {
         a
     }
 
-    /// Caída anunciada (amarillo) que empezó en t1.
+    /// Caída (ya avisada) que empezó en t1.
     fn announced(a: &mut Alerts, t1: Instant) {
-        a.on_check(Failed, t1, "09:00");
-        assert!(a.on_tick(t1 + GRACE).contains(&sin_conexion()));
+        assert!(a.on_check(Failed, t1, "09:00").contains(&sin_conexion("09:00")));
     }
 
     #[test]
@@ -185,7 +186,7 @@ mod tests {
         let toml_text = "[sin_datos]\ntitulo = \"Alerta\"\nventana = \"Nada en {periodo}. ({hora})\"\n[recuperado]\ncuerpo = \"Volvió\"\n";
         let mut tx = Textos::from_toml(toml::from_str(toml_text).unwrap()).unwrap();
         tx.resolver("T", 180);
-        let mut a = Alerts::new(tx, t0, "08:00");
+        let mut a = Alerts::new(tx, REPEAT, t0, "08:00");
         a.on_check(Fresh { n: 1 }, t0 + 5 * S, "08:00");
         let acts = a.on_check(Stale, t0 + 10 * S, "10:40");
         assert_eq!(acts[1], toast("Alerta", "Sin registros nuevos en T en los últimos 3 minutos"));
@@ -195,10 +196,9 @@ mod tests {
 
     #[test]
     fn starts_yellow_connecting() {
-        let t0 = Instant::now();
-        let a = alerts(t0, "08:00");
+        let a = alerts(Instant::now(), "08:00");
         assert_eq!(a.status(), "Conectando…");
-        assert_eq!(a.deadline(), Some(t0 + GRACE));
+        assert_eq!(a.light(), Light::Yellow);
     }
 
     #[test]
@@ -207,7 +207,6 @@ mod tests {
         let mut a = alerts(t0, "08:00");
         assert_eq!(a.on_check(Fresh { n: 42 }, t0 + 5 * S, "08:15"), [SetLight(Light::Green)]);
         assert_eq!(a.status(), "OK · 42 registros en 2 horas · chequeo 08:15");
-        assert_eq!(a.deadline(), None);
     }
 
     #[test]
@@ -253,34 +252,35 @@ mod tests {
     }
 
     #[test]
-    fn failure_within_grace_is_silent() {
+    fn failure_alerts_immediately() {
         let t0 = Instant::now();
         let mut a = green(t0);
-        let t1 = t0 + 10 * S;
-        assert_eq!(a.on_check(Failed, t1, "09:00"), []);
-        assert_eq!(a.deadline(), Some(t1 + GRACE));
-        assert_eq!(a.on_tick(t1 + 59 * S), []);
-        assert_eq!(a.on_check(Fresh { n: 1 }, t1 + 30 * S, "09:01"), []);
-        assert_eq!(a.deadline(), None);
+        assert_eq!(a.on_check(Failed, t0 + 10 * S, "09:00"), [SetLight(Light::Yellow), sin_conexion("09:00")]);
+        assert_eq!(a.status(), "Sin conexión · reintentando · desde 09:00");
+        assert_eq!(a.light(), Light::Yellow);
     }
 
     #[test]
-    fn failure_after_grace_alerts() {
+    fn outage_repeats_every_interval() {
         let t0 = Instant::now();
         let mut a = green(t0);
         let t1 = t0 + 10 * S;
-        a.on_check(Failed, t1, "09:00");
-        assert_eq!(a.on_tick(t1 + GRACE), [SetLight(Light::Yellow), sin_conexion()]);
-        assert_eq!(a.status(), "Sin conexión · reintentando · desde 09:00");
-        assert_eq!(a.on_check(Failed, t1 + 70 * S, "09:02"), []);
-        assert_eq!(a.deadline(), None);
+        announced(&mut a, t1);
+        // los reintentos con backoff (1 s, 2 s, 4 s…) no repiten el aviso antes de interval_secs
+        for d in [1, 3, 7, 15, 299] {
+            assert_eq!(a.on_check(Failed, t1 + d * S, "09:04"), [], "a los {d}s");
+        }
+        assert_eq!(a.on_check(Failed, t1 + 300 * S, "09:05"), [sin_conexion("09:00")]);
+        assert_eq!(a.on_check(Failed, t1 + 450 * S, "09:07"), []);
+        assert_eq!(a.on_check(Failed, t1 + 600 * S, "09:10"), [sin_conexion("09:00")]);
     }
 
     #[test]
     fn startup_without_connection_alerts() {
         let t0 = Instant::now();
         let mut a = alerts(t0, "07:58");
-        assert_eq!(a.on_tick(t0 + GRACE), [SetLight(Light::Yellow), sin_conexion()]);
+        // ya está en amarillo ("Conectando…"): solo el toast
+        assert_eq!(a.on_check(Failed, t0 + S, "07:58"), [sin_conexion("07:58")]);
         assert_eq!(a.status(), "Sin conexión · reintentando · desde 07:58");
     }
 
@@ -297,6 +297,8 @@ mod tests {
                 CloseWarning
             ]
         );
+        // un corte nuevo vuelve a avisar enseguida
+        assert!(a.on_check(Failed, t0 + 110 * S, "09:06").contains(&sin_conexion("09:06")));
     }
 
     #[test]
@@ -315,32 +317,12 @@ mod tests {
     }
 
     #[test]
-    fn flapping_never_toasts() {
-        let t0 = Instant::now();
-        let mut a = green(t0);
-        let mut actions = Vec::new();
-        for i in 0..50u32 {
-            let t = t0 + 10 * S + i * 25 * S;
-            actions.extend(a.on_check(Failed, t, "10:00"));
-            if let Some(d) = a.deadline() {
-                if d < t + 20 * S {
-                    actions.extend(a.on_tick(d));
-                }
-            }
-            actions.extend(a.on_check(Fresh { n: 1 }, t + 20 * S, "10:00"));
-        }
-        assert!(!actions.iter().any(|x| matches!(x, Toast { .. })), "{actions:?}");
-    }
-
-    #[test]
     fn stale_then_outage_keeps_warning() {
         let t0 = Instant::now();
         let mut a = green(t0);
         a.on_check(Stale, t0 + 10 * S, "08:20");
-        let t1 = t0 + 20 * S;
-        a.on_check(Failed, t1, "08:21");
-        let acts = a.on_tick(t1 + GRACE);
-        assert!(acts.contains(&SetLight(Light::Yellow)) && acts.contains(&sin_conexion()), "{acts:?}");
+        let acts = a.on_check(Failed, t0 + 20 * S, "08:21");
+        assert!(acts.contains(&SetLight(Light::Yellow)) && acts.contains(&sin_conexion("08:21")), "{acts:?}");
         assert!(!acts.contains(&CloseWarning), "{acts:?}");
     }
 }

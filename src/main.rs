@@ -113,7 +113,7 @@ fn main() {
         let _ = proxy.send_event(UiEvent::Stopped(r.map_err(|e| format!("{e:#}"))));
     });
 
-    let mut alerts = Alerts::new(tx.clone(), Instant::now(), &clock());
+    let mut alerts = Alerts::new(tx.clone(), Duration::from_secs(f.interval_secs), Instant::now(), &clock());
     let mut warning = desktop::Warning::new(&tx.sin_datos_titulo);
     let status_item = MenuItem::new(alerts.status(), false, None);
     let logs_item = MenuItem::new("Abrir logs", true, None);
@@ -145,7 +145,6 @@ fn main() {
                 desktop::toast(&tx.inicio_titulo, &body);
                 Vec::new()
             }
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => alerts.on_tick(Instant::now()),
             Event::UserEvent(UiEvent::Check(c)) => alerts.on_check(c, Instant::now(), &clock()),
             Event::UserEvent(UiEvent::Menu(id)) => {
                 if id == *logs_item.id() {
@@ -173,8 +172,8 @@ fn main() {
             }
             _ => return,
         };
-        // rojo o amarillo en este lote: aviso urgente para ntfy
-        let urgent = actions.iter().any(|a| matches!(a, Action::SetLight(Light::Red | Light::Yellow)));
+        // en rojo o amarillo (también las repeticiones del aviso de caída): prioridad alta en ntfy
+        let urgent = alerts.light() != Light::Green;
         for a in actions {
             match a {
                 Action::SetLight(l) => {
@@ -198,9 +197,6 @@ fn main() {
         if let Some(t) = &tray {
             let _ = t.set_tooltip(Some(&status));
         }
-        *control_flow = match alerts.deadline() {
-            Some(d) => ControlFlow::WaitUntil(d),
-            None => ControlFlow::Wait,
-        };
+        *control_flow = ControlFlow::Wait;
     });
 }
