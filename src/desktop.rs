@@ -34,18 +34,13 @@ pub fn icon(light: Light) -> tray_icon::Icon {
     tray_icon::Icon::from_rgba(rgba.to_vec(), N, N).expect("valid rgba icon")
 }
 
-/// Identidad (AppUserModelID) con la que firma los toasts en Windows; `register_app` la da de alta.
-pub const APP_ID: &str = "DbMonitor.Alertas";
-
 /// Notificación del sistema; si falla (permisos, modo concentración) solo se loguea.
 /// En su propio hilo: en macOS `show()` es bloqueante y congelaría el bucle de eventos.
+/// En Windows firma como PowerShell: con un AppUserModelID propio que Windows no reconoce como app
+/// instalada (sin acceso directo en Inicio), el toast se descarta sin dar error.
 pub fn toast(title: &str, body: &str) {
     let mut n = notify_rust::Notification::new();
     n.summary(title).body(body);
-    #[cfg(windows)]
-    if imp::REGISTERED.get().is_some() {
-        n.app_id(APP_ID);
-    }
     std::thread::spawn(move || {
         if let Err(e) = n.show() {
             tracing::warn!("no se pudo mostrar la notificación: {e}");
@@ -60,17 +55,14 @@ pub fn open_dir(path: &Path) {
     }
 }
 
-pub use imp::{error_box, info_box, register_app, Warning};
+pub use imp::{error_box, info_box, Warning};
 
 #[cfg(windows)]
 mod imp {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
-    use std::sync::OnceLock;
-
     use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::System::Registry::{RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetDlgItem, MessageBoxW, PostMessageW, SetWindowTextW, MB_ICONERROR, MB_ICONINFORMATION,
         MB_ICONWARNING, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, WM_CLOSE,
@@ -87,24 +79,6 @@ mod imp {
 
     pub fn error_box(title: &str, msg: &str) {
         message_box(msg, title, MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-    }
-
-    pub(super) static REGISTERED: OnceLock<()> = OnceLock::new();
-
-    /// Da de alta `APP_ID` con `name` como remitente de los toasts (en HKCU, sin permisos de administrador).
-    /// Sin esto Windows los muestra como "Windows PowerShell". Si falla, se sigue con esa identidad:
-    /// un AppUserModelID sin registrar haría desaparecer los toasts.
-    pub fn register_app(name: &str) {
-        let key = wide(&format!(r"Software\Classes\AppUserModelId\{}", super::APP_ID));
-        let (value, data) = (wide("DisplayName"), wide(name));
-        let r = unsafe {
-            RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr(), REG_SZ, data.as_ptr().cast(), (data.len() * 2) as u32)
-        };
-        if r == 0 {
-            let _ = REGISTERED.set(());
-        } else {
-            tracing::warn!("no se pudo registrar el remitente de los toasts (error {r}); se mostrarán como PowerShell");
-        }
     }
 
     pub fn info_box(title: &str, msg: &str) {
@@ -185,9 +159,6 @@ mod imp {
     pub fn error_box(title: &str, msg: &str) {
         let _ = dialog(msg, title, "stop").status();
     }
-
-    /// En macOS el remitente lo decide el sistema.
-    pub fn register_app(_name: &str) {}
 
     pub fn info_box(title: &str, msg: &str) {
         let _ = dialog(msg, title, "note").status();

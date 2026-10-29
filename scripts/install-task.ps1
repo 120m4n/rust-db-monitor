@@ -15,7 +15,7 @@ $Nombre = 'db-monitor'
 if ($Desinstalar) {
     Stop-ScheduledTask -TaskName $Nombre -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $Nombre -Confirm:$false
-    # remitente de los toasts que registra db-monitor al arrancar
+    # remitente de los toasts que registraba db-monitor (versiones eabae29..f9be713)
     Remove-Item 'HKCU:\Software\Classes\AppUserModelId\DbMonitor.Alertas' -Recurse -ErrorAction SilentlyContinue
     Write-Host "Tarea '$Nombre' eliminada."
     return

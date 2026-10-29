@@ -221,7 +221,7 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 - Solo detecta registros **nuevos** (por `time_column`), no UPDATE ni DELETE.
 - Sin TLS en PostgreSQL.
 - Un error de sintaxis en `config.toml` puede mostrar por pantalla la línea afectada, incluida la del password si está ahí.
-- En Windows el remitente del toast es `[textos].app`: al arrancar se registra en `HKCU\Software\Classes\AppUserModelId\DbMonitor.Alertas` (sin permisos de administrador; `install-task.ps1 -Desinstalar` lo borra). Si el registro falla, los toasts salen como "Windows PowerShell". El toast no lleva icono propio.
+- En Windows el remitente del toast aparece como "Windows PowerShell". Un nombre propio requiere que Windows reconozca a db-monitor como app instalada (acceso directo en Inicio con su AppUserModelID); registrarlo solo en el registro no basta y hace que los toasts se descarten sin error.
 
 ## Desarrollo
 
@@ -237,7 +237,7 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 ## TODO
 
 **Pendiente de verificar**
-- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), remitente del toast (`[textos].app`), actualización de la hora en la ventana abierta, icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
+- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), actualización de la hora en la ventana abierta, icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
 - [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
 
 **Funcionalidad**

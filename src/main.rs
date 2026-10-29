@@ -63,8 +63,6 @@ fn main() {
         .with(fmt::layer())
         .init();
 
-    desktop::register_app(&tx.app);
-
     let (db, f) = (&cfg.database, &cfg.freshness);
     tracing::info!(
         "db-monitor v{} | {:?} {}{}{} | `{}` cada {}s, ventana {}s",
