@@ -222,7 +222,8 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 - Solo detecta registros **nuevos** (por `time_column`), no UPDATE ni DELETE.
 - Sin TLS en PostgreSQL.
 - Un error de sintaxis en `config.toml` puede mostrar por pantalla la línea afectada, incluida la del password si está ahí.
-- En Windows el remitente del toast aparece como "Windows PowerShell". Un nombre propio requiere que Windows reconozca a db-monitor como app instalada (acceso directo en Inicio con su AppUserModelID); registrarlo solo en el registro no basta y hace que los toasts se descarten sin error.
+- En Windows el remitente del toast es `[textos].app`. Para eso db-monitor crea, la primera vez, un acceso directo con ese nombre en el menú Inicio del usuario (`%APPDATA%\Microsoft\Windows\Start Menu\Programs`), sin permisos de administrador. **Esa primera ejecución** los toasts siguen saliendo como "Windows PowerShell": Windows tarda en reconocer el acceso directo nuevo. Desde el siguiente arranque salen con el nombre propio. El log dice cuál se usa (`toasts: remitente …`). Si no se puede crear el acceso directo, siguen como PowerShell.
+- Si se cambia `[textos].app`, el acceso directo con el nombre anterior queda en el menú Inicio; `install-task.ps1 -Desinstalar` borra todos los que apuntan al `.exe`.
 
 ## Desarrollo
 
@@ -238,7 +239,7 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 ## TODO
 
 **Pendiente de verificar**
-- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), actualización de la hora en la ventana abierta, icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
+- [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), remitente propio del toast (segundo arranque), actualización de la hora en la ventana abierta, icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
 - [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
 
 **Funcionalidad**

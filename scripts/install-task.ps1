@@ -17,6 +17,11 @@ if ($Desinstalar) {
     Unregister-ScheduledTask -TaskName $Nombre -Confirm:$false
     # remitente de los toasts que registraba db-monitor (versiones eabae29..f9be713)
     Remove-Item 'HKCU:\Software\Classes\AppUserModelId\DbMonitor.Alertas' -Recurse -ErrorAction SilentlyContinue
+    # accesos directos del menu Inicio que crea db-monitor para firmar los toasts
+    $Shell = New-Object -ComObject WScript.Shell
+    Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\*.lnk" |
+        Where-Object { $Shell.CreateShortcut($_.FullName).TargetPath -eq $Exe } |
+        ForEach-Object { Remove-Item $_.FullName; Write-Host "Acceso directo eliminado: $($_.Name)" }
     Write-Host "Tarea '$Nombre' eliminada."
     return
 }

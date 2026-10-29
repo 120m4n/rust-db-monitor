@@ -36,11 +36,14 @@ pub fn icon(light: Light) -> tray_icon::Icon {
 
 /// Notificación del sistema; si falla (permisos, modo concentración) solo se loguea.
 /// En su propio hilo: en macOS `show()` es bloqueante y congelaría el bucle de eventos.
-/// En Windows firma como PowerShell: con un AppUserModelID propio que Windows no reconoce como app
-/// instalada (sin acceso directo en Inicio), el toast se descarta sin dar error.
+/// En Windows firma con `APP_ID` solo si `setup_toasts` encontró su acceso directo; si no, como PowerShell.
 pub fn toast(title: &str, body: &str) {
     let mut n = notify_rust::Notification::new();
     n.summary(title).body(body);
+    #[cfg(windows)]
+    if imp::OWN_SENDER.get().is_some() {
+        n.app_id(APP_ID);
+    }
     std::thread::spawn(move || {
         if let Err(e) = n.show() {
             tracing::warn!("no se pudo mostrar la notificación: {e}");
@@ -55,7 +58,12 @@ pub fn open_dir(path: &Path) {
     }
 }
 
-pub use imp::{error_box, info_box, Warning};
+/// AppUserModelID de los toasts en Windows. Va en un acceso directo del menú Inicio: Windows solo muestra
+/// toasts de un AppUserModelID propio si una app "instalada" lo declara así; registrarlo en el registro
+/// no basta y el toast se descarta sin error (regresión de eabae29).
+pub const APP_ID: &str = "DbMonitor";
+
+pub use imp::{error_box, info_box, setup_toasts, Warning};
 
 #[cfg(windows)]
 mod imp {
@@ -79,6 +87,99 @@ mod imp {
 
     pub fn error_box(title: &str, msg: &str) {
         message_box(msg, title, MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    }
+
+    pub(super) static OWN_SENDER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+    /// Remitente propio de los toasts: `name` (el nombre del acceso directo es lo que muestra Windows).
+    /// Si el acceso directo ya existe con `APP_ID`, se usa desde ya. Si no, se crea y esta ejecución sigue
+    /// como PowerShell: Windows tarda en reconocer un acceso directo nuevo y el primer toast se perdería.
+    // ponytail: si cambia [textos].app queda el acceso directo viejo; install-task.ps1 -Desinstalar los borra
+    pub fn setup_toasts(name: &str) {
+        let Some(dir) = std::env::var_os("APPDATA") else { return };
+        let file: String = name.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) { '-' } else { c }).collect();
+        let lnk = std::path::PathBuf::from(dir)
+            .join(r"Microsoft\Windows\Start Menu\Programs")
+            .join(format!("{}.lnk", file.trim()));
+        let Ok(exe) = std::env::current_exe() else { return };
+        // COM en un hilo propio: no interfiere con la inicialización OLE del bucle de eventos
+        let l = lnk.clone();
+        let r = std::thread::spawn(move || unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED);
+            if atajo::app_id(&l).ok().as_deref() == Some(super::APP_ID) {
+                return Ok(true);
+            }
+            atajo::crear(&l, &exe, super::APP_ID).map(|()| false)
+        })
+        .join();
+        match r {
+            Ok(Ok(true)) => {
+                let _ = OWN_SENDER.set(());
+                tracing::info!("toasts: remitente \"{name}\" ({})", lnk.display());
+            }
+            Ok(Ok(false)) => tracing::info!(
+                "toasts: creado {}; el remitente \"{name}\" se usa desde el próximo arranque (ahora: PowerShell)",
+                lnk.display()
+            ),
+            Ok(Err(e)) => tracing::warn!("toasts: no se pudo crear {} ({e}); remitente PowerShell", lnk.display()),
+            Err(_) => tracing::warn!("toasts: fallo al crear el acceso directo; remitente PowerShell"),
+        }
+    }
+
+    /// Acceso directo `.lnk` con la propiedad `System.AppUserModel.ID`.
+    mod atajo {
+        use std::mem::ManuallyDrop;
+        use std::path::Path;
+
+        use windows::core::{Interface, Result, BSTR, HSTRING};
+        use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
+        use windows::Win32::System::Com::StructuredStorage::{
+            PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+        };
+        use windows::Win32::System::Com::{CoCreateInstance, IPersistFile, CLSCTX_INPROC_SERVER, STGM_READ};
+        use windows::Win32::System::Variant::VT_LPWSTR;
+        use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+        use windows::Win32::UI::Shell::{IShellLinkW, SHStrDupW, ShellLink};
+
+        fn nuevo() -> Result<IShellLinkW> {
+            unsafe { CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER) }
+        }
+
+        /// AppUserModelID de un acceso directo existente.
+        pub fn app_id(lnk: &Path) -> Result<String> {
+            let link = nuevo()?;
+            unsafe {
+                link.cast::<IPersistFile>()?.Load(&HSTRING::from(lnk), STGM_READ)?;
+                let v = link.cast::<IPropertyStore>()?.GetValue(&PKEY_AppUserModel_ID)?;
+                Ok(BSTR::try_from(&v)?.to_string())
+            }
+        }
+
+        pub fn crear(lnk: &Path, exe: &Path, app_id: &str) -> Result<()> {
+            let link = nuevo()?;
+            unsafe {
+                link.SetPath(&HSTRING::from(exe))?;
+                if let Some(dir) = exe.parent() {
+                    link.SetWorkingDirectory(&HSTRING::from(dir))?;
+                }
+                // VT_LPWSTR como InitPropVariantFromString; la cadena la libera PROPVARIANT al soltarse
+                let v = PROPVARIANT {
+                    Anonymous: PROPVARIANT_0 {
+                        Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+                            vt: VT_LPWSTR,
+                            wReserved1: 0,
+                            wReserved2: 0,
+                            wReserved3: 0,
+                            Anonymous: PROPVARIANT_0_0_0 { pwszVal: SHStrDupW(&HSTRING::from(app_id))? },
+                        }),
+                    },
+                };
+                let store = link.cast::<IPropertyStore>()?;
+                store.SetValue(&PKEY_AppUserModel_ID, &v)?;
+                store.Commit()?;
+                link.cast::<IPersistFile>()?.Save(&HSTRING::from(lnk), true)
+            }
+        }
     }
 
     pub fn info_box(title: &str, msg: &str) {
@@ -159,6 +260,9 @@ mod imp {
     pub fn error_box(title: &str, msg: &str) {
         let _ = dialog(msg, title, "stop").status();
     }
+
+    /// En macOS el remitente lo decide el sistema.
+    pub fn setup_toasts(_name: &str) {}
 
     pub fn info_box(title: &str, msg: &str) {
         let _ = dialog(msg, title, "note").status();
