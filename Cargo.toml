@@ -17,6 +17,9 @@ anyhow = "1"
 tao = "0.37"
 tray-icon = "0.26"
 notify-rust = "4"
+# versiones que ya están en Cargo.lock (toml 0.8 trae toml_edit 0.20): no suman crates
+base64 = "0.22"
+toml_edit = "0.20"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(windows)'.dependencies]

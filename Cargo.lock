@@ -512,6 +512,7 @@ name = "db-monitor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "embed-resource",
  "notify-rust",
@@ -523,6 +524,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "toml 0.8.2",
+ "toml_edit 0.20.2",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
