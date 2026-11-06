@@ -160,7 +160,23 @@ Un salto de línea se escribe `\n`. ntfy recibe los mismos títulos y textos que
 - **Para cambiar una credencial**, escríbela en claro en lugar del valor `GSR:`; se ofusca en el siguiente arranque.
 - Los campos vacíos no se tocan. `DB_PASSWORD` y `NTFY_TOKEN` siguen teniendo prioridad y nunca se escriben en el archivo.
 - Si `config.toml` no se puede escribir (solo lectura, sin permisos) o un valor `GSR:` está dañado, sale una ventana de error y no arranca.
-- **Es ofuscación, no cifrado:** evita leerlas a simple vista, pero quien tenga el `.exe` puede revertirla. La protección real es un usuario de BD de solo lectura (ver [Requisitos por motor](#requisitos-por-motor)); para cifrado ver `[credenciales] metodo = "dpapi"`.
+- **Es ofuscación, no cifrado:** evita leerlas a simple vista, pero quien tenga el `.exe` puede revertirla. La protección real es un usuario de BD de solo lectura (ver [Requisitos por motor](#requisitos-por-motor)); para cifrado ver [`[credenciales]`](#credenciales-opcional-cifrado-dpapi).
+
+### `[credenciales]` (opcional): cifrado DPAPI
+
+Por defecto (`metodo = "gsr"`) las credenciales se **ofuscan** como se describe arriba. Con `metodo = "dpapi"` se **cifran** con DPAPI de Windows (`password = "DPAPI:AQAAANCMnd8B..."`), con una clave que gestiona Windows, ligada al usuario y al equipo: quien copie el archivo y el `.exe` no puede descifrarlas.
+
+```toml
+[credenciales]
+metodo = "dpapi"   # gsr (por defecto) | dpapi
+```
+
+- **Solo cifra la tarea programada** (`--tarea`, con el usuario de la tarea). Si se lanza a mano con otro usuario y hay credenciales en claro o `GSR:`, se usan en memoria sin reescribir el archivo y queda un `WARN` en el log; así el archivo no queda cifrado para un usuario distinto del de la tarea.
+- Los valores `GSR:` existentes se migran solos a `DPAPI:` en el primer arranque de la tarea.
+- **El archivo queda atado al equipo y al usuario de la tarea.** No copies un `config.toml` cifrado a otro equipo: al no poder descifrarlo sale *"La credencial de database.password fue cifrada en otro equipo o usuario; escríbala de nuevo en claro en config.toml"* y no arranca. Para recuperarlo, escribe la credencial en claro: se vuelve a cifrar en el siguiente arranque de la tarea.
+- Con cuentas locales, si un administrador **resetea** la contraseña del usuario (no si el usuario la cambia), Windows pierde la clave y hay que volver a escribir la credencial en claro.
+- No protege contra un proceso que se ejecute como el mismo usuario ni contra un administrador del equipo.
+- Fuera de Windows, un valor `DPAPI:` da error "solo disponible en Windows".
 
 ### `[logging]`
 

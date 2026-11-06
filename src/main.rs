@@ -54,7 +54,8 @@ fn main() {
         Err(e) => fatal(&tx.app, &format!("{e:#}")),
     };
     // con el lock tomado: dos arranques a la vez no reescriben el archivo a la vez
-    let protegido = credenciales::proteger_archivo(&path).unwrap_or_else(|e| fatal(&tx.app, &format!("{e:#}")));
+    let protegido = credenciales::proteger_archivo(&path, cfg.credenciales.metodo, tarea)
+        .unwrap_or_else(|e| fatal(&tx.app, &format!("{e:#}")));
 
     // el guard debe soltarse antes de exit para vaciar el log
     config::podar_logs(&cfg.logging.dir, cfg.logging.max_files);
@@ -75,9 +76,16 @@ fn main() {
         .init();
 
     desktop::setup_toasts(&tx.app);
-    if protegido {
-        tracing::info!("credenciales ofuscadas en {}", path.display());
-        desktop::toast(&tx.credenciales_titulo, &tx.credenciales_cuerpo);
+    match protegido {
+        credenciales::Resultado::Reescrito => {
+            tracing::info!("credenciales protegidas ({:?}) en {}", cfg.credenciales.metodo, path.display());
+            desktop::toast(&tx.credenciales_titulo, &tx.credenciales_cuerpo);
+        }
+        credenciales::Resultado::PendienteTarea => tracing::warn!(
+            "credenciales sin cifrar con DPAPI en {}: se cifran solo cuando lo lanza la tarea programada (--tarea)",
+            path.display()
+        ),
+        credenciales::Resultado::SinCambios => {}
     }
 
     let (db, f) = (&cfg.database, &cfg.freshness);

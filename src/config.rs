@@ -18,9 +18,20 @@ pub struct Config {
     /// Opcional: reenvía los avisos a ntfy.
     #[serde(default)]
     pub ntfy: Option<Ntfy>,
+    /// Opcional: cómo se protegen las credenciales en el archivo (por defecto `gsr`).
+    #[serde(default)]
+    pub credenciales: Credenciales,
     /// `[textos]`: se lee aparte (`Textos::from_toml`) para validar claves y variables.
     #[serde(skip)]
     pub textos: Textos,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Credenciales {
+    /// `gsr` (ofuscación, por defecto) o `dpapi` (cifrado de Windows, solo desde la tarea programada).
+    #[serde(default)]
+    pub metodo: credenciales::Metodo,
 }
 
 #[derive(Deserialize, Clone)]
@@ -221,13 +232,13 @@ impl Config {
     }
 }
 
-/// Sustituye en memoria los valores `GSR:` de `credenciales::CAMPOS` por su valor en claro.
+/// Sustituye en memoria los valores `GSR:`/`DPAPI:` de `credenciales::CAMPOS` por su valor en claro.
 fn desofuscar_campos(raw: &mut toml::Table) -> anyhow::Result<()> {
     for (sec, key) in credenciales::CAMPOS {
         let Some(toml::Value::Table(t)) = raw.get_mut(sec) else { continue };
         if let Some(toml::Value::String(v)) = t.get_mut(key) {
-            if v.starts_with(credenciales::PREFIJO) {
-                *v = credenciales::desofuscar(v).with_context(|| format!("{sec}.{key}"))?;
+            if credenciales::protegido(v) {
+                *v = credenciales::revelar(v, &format!("{sec}.{key}"))?;
             }
         }
     }
@@ -453,6 +464,15 @@ window_secs = 120
         let body = MIN.replace("user = \"u\"", "user = \"u\"\npassword = \"GSR:%%\"");
         let e = load(&write(d.path(), &body)).unwrap_err();
         assert!(format!("{e:#}").contains("database.password"), "{e:#}");
+    }
+
+    #[test]
+    fn credenciales_metodo_por_defecto_gsr() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(load(&write(d.path(), MIN)).unwrap().credenciales.metodo, credenciales::Metodo::Gsr);
+        let dp = format!("{MIN}[credenciales]\nmetodo = \"dpapi\"\n");
+        assert_eq!(load(&write(d.path(), &dp)).unwrap().credenciales.metodo, credenciales::Metodo::Dpapi);
+        assert!(load(&write(d.path(), &format!("{MIN}[credenciales]\nmetodo = \"aes\"\n"))).is_err());
     }
 
     #[test]

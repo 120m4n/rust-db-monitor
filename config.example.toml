@@ -47,6 +47,11 @@ backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 
 # titulo = "{app}: OK"
 # cuerpo = "{tabla} volvió a recibir registros"
 
+# Opcional. Cómo se protegen user/password/token en este archivo: "gsr" ofusca (por defecto);
+# "dpapi" cifra con Windows, ligado al usuario y equipo de la tarea programada (ver README).
+# [credenciales]
+# metodo = "gsr"
+
 [logging]
 dir = "logs"               # un archivo por día: db-monitor.log.AAAA-MM-DD
 level = "info"             # error | warn | info | debug | trace
