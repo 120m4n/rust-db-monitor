@@ -24,7 +24,7 @@ interval_secs = 300        # chequeo cada 5 minutos
 query_timeout_secs = 60
 backoff_max_secs = 300
 
-# Opcional. Avisos al móvil vía ntfy (cambios de estado: sin datos, sin conexión, recuperado).
+# Opcional. Avisos al móvil vía ntfy (los mismos que los toasts: sin datos y sin conexión en cada ciclo, recuperado).
 # [ntfy]
 # topic = "iec104-sala-control-x7k2"   # en ntfy.sh los temas son públicos: nombre difícil de adivinar
 # server = "https://ntfy.sh"

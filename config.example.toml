@@ -24,7 +24,7 @@ interval_secs = 60         # segundos entre chequeos (>= 1)
 query_timeout_secs = 30    # mantenlo menor que interval_secs
 backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 2 s, 4 s…)
 
-# Opcional. Reenvía los avisos (solo cambios de estado) a ntfy, p. ej. a la app del móvil.
+# Opcional. Reenvía los avisos (los mismos que los toasts) a ntfy, p. ej. a la app del móvil.
 # Prioridad alta al pasar a rojo o amarillo, normal al recuperarse. Envía con el curl del sistema.
 # [ntfy]
 # topic = "sala-control-db-x7k2"   # letras, dígitos, - y _. En ntfy.sh los temas son públicos: nombre difícil de adivinar

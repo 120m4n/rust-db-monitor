@@ -143,6 +143,9 @@ fn main() {
                 let body = textos::render(&tx.inicio_cuerpo, &[("donde", donde)]);
                 tracing::info!("aviso: {} · {body}", tx.inicio_titulo);
                 desktop::toast(&tx.inicio_titulo, &body);
+                if let Some(n) = &ntfy {
+                    ntfy::send(n, &tx.inicio_titulo, &body, false);
+                }
                 Vec::new()
             }
             Event::UserEvent(UiEvent::Check(c)) => alerts.on_check(c, Instant::now(), &clock()),

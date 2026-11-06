@@ -94,7 +94,8 @@ impl Alerts {
             _ => {
                 if reconnected {
                     out.push(toast(&tx.reconectado_titulo, &tx.reconectado_cuerpo_sin_datos));
-                } else if prev != Light::Red {
+                } else {
+                    // se repite en cada ciclo mientras siga sin datos (un `Stale` por ciclo, sin backoff)
                     out.push(toast(&tx.sin_datos_titulo, &tx.sin_datos_cuerpo));
                 }
                 out.push(Action::ShowWarning(render(&tx.sin_datos_ventana, &[("hora", clock)])));
@@ -221,12 +222,12 @@ mod tests {
     }
 
     #[test]
-    fn stale_repeats_only_warning() {
+    fn stale_repeats_toast_and_warning() {
         let t0 = Instant::now();
         let mut a = green(t0);
         a.on_check(Stale, t0 + 10 * S, "08:20");
         for (i, clock) in ["08:25", "08:30", "08:35"].iter().enumerate() {
-            assert_eq!(a.on_check(Stale, t0 + (20 + i as u32) * S, clock), [warning(clock)]);
+            assert_eq!(a.on_check(Stale, t0 + (20 + i as u32) * S, clock), [sin_datos(), warning(clock)]);
         }
     }
 

@@ -20,11 +20,11 @@ db-monitor.exe [ruta\a\config.toml] [--tarea]
 | Icono | Significa | Al entrar en ese estado |
 |---|---|---|
 | Verde | La tabla recibe datos | Toast si venía de rojo o de una caída de conexión |
-| Rojo | Conectado, pero sin filas en `window_secs` | Toast + ventana de advertencia |
+| Rojo | Conectado, pero sin filas en `window_secs` | Toast + ventana de advertencia, y el toast se repite en cada ciclo mientras siga así |
 | Amarillo | Sin conexión a la base (también "Conectando…" al arrancar) | Toast, y se repite en cada ciclo mientras siga caída |
 
 - Al arrancar sin errores sale un toast "db-monitor en ejecución" que dice dónde está el icono.
-- Los toasts salen **solo al cambiar de estado**, no en cada ciclo.
+- Los toasts de recuperación salen **solo al cambiar de estado**; los de rojo y amarillo se repiten en cada ciclo mientras dure el problema. Todo toast se reenvía también a ntfy si está configurado.
 - Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Si sigue abierta, en Windows se actualiza la hora del último chequeo. Se cierra sola cuando vuelven los datos.
 - **Caída de la base:** avisa (toast y ntfy, prioridad alta) en cuanto falla la conexión o una consulta, y repite el aviso como mucho una vez por `interval_secs` mientras siga caída; los reintentos más seguidos del backoff no lo repiten. Al volver, toast "conexión restablecida".
 - La caída se detecta en el siguiente chequeo: puede tardar hasta `interval_secs`, más `query_timeout_secs` si la consulta se queda colgada. Para enterarse antes, baja `interval_secs`.
@@ -87,7 +87,7 @@ Formato de `time_column`:
 
 ### `[ntfy]` (opcional)
 
-Reenvía los avisos a [ntfy](https://ntfy.sh) para recibirlos en el móvil o en otro equipo (app de ntfy suscrita al mismo `topic`). Se envía lo mismo que los toasts, solo en los cambios de estado: prioridad alta al pasar a rojo o amarillo, normal al recuperarse.
+Reenvía los avisos a [ntfy](https://ntfy.sh) para recibirlos en el móvil o en otro equipo (app de ntfy suscrita al mismo `topic`). Se envía lo mismo que los toasts (también sus repeticiones en cada ciclo): prioridad alta en rojo o amarillo, normal al recuperarse o al arrancar.
 
 | Clave | Por defecto | Descripción |
 |---|---|---|
