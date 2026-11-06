@@ -95,7 +95,7 @@ Reenvía los avisos a [ntfy](https://ntfy.sh) para recibirlos en el móvil o en 
 | `server` | `https://ntfy.sh` | Servidor ntfy (o uno propio) |
 | `token` | vacío | Token de acceso para servidores con autenticación. Mejor la variable de entorno `NTFY_TOKEN`, que tiene prioridad |
 
-Usa el `curl` del sistema (incluido en Windows 10/11 y macOS). Si falla el envío (sin red, servidor caído), queda un `WARN ntfy: …` en el log y el programa sigue.
+Usa el `curl` del sistema (incluido en Windows 10/11 y macOS). El token se le pasa por la entrada estándar, no en la línea de comandos, así que no lo ve otro proceso del equipo. Si falla el envío (sin red, servidor caído), queda un `WARN ntfy: …` en el log y el programa sigue; ese aviso **no se reintenta** (el siguiente ciclo envía el que corresponda).
 
 ### `[textos]` (opcional)
 

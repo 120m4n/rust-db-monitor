@@ -5,9 +5,10 @@
 use crate::config::Ntfy;
 
 /// Argumentos de `curl` para publicar en `n.server` con el formato JSON de ntfy.
-/// `urgent`: prioridad alta (rojo o amarillo); si no, normal.
-pub fn curl_args(n: &Ntfy, title: &str, body: &str, urgent: bool) -> Vec<String> {
-    let (priority, tag) = if urgent { (4, "warning") } else { (3, "white_check_mark") };
+/// `priority`: 4 = rojo o amarillo, 3 = normal, 2 = baja. El token nunca va aquí (lo vería cualquier
+/// proceso del equipo en la línea de comandos): va por stdin con `--config -` (ver `curl_config`).
+pub fn curl_args(n: &Ntfy, title: &str, body: &str, priority: u8) -> Vec<String> {
+    let tag = if priority >= 4 { "warning" } else { "white_check_mark" };
     let json = format!(
         r#"{{"topic":{},"title":{},"message":{},"priority":{priority},"tags":["{tag}"]}}"#,
         quote(&n.topic),
@@ -18,10 +19,19 @@ pub fn curl_args(n: &Ntfy, title: &str, body: &str, urgent: bool) -> Vec<String>
         .map(String::from)
         .into();
     if !n.token.is_empty() {
-        a.extend(["-H".into(), format!("Authorization: Bearer {}", n.token)]);
+        a.extend(["--config".into(), "-".into()]);
     }
     a.extend(["--data-binary".into(), json, n.server.trim_end_matches('/').into()]);
     a
+}
+
+/// Config de curl para stdin con la cabecera del token; `None` sin token.
+pub fn curl_config(n: &Ntfy) -> Option<String> {
+    if n.token.is_empty() {
+        return None;
+    }
+    let v = format!("Authorization: Bearer {}", n.token).replace('\\', "\\\\").replace('"', "\\\"");
+    Some(format!("header = \"{v}\"\n"))
 }
 
 /// Cadena JSON: solo hace falta escapar `"`, `\` y los caracteres de control.
@@ -40,19 +50,28 @@ fn quote(s: &str) -> String {
     out
 }
 
-/// Publica en un hilo propio; un fallo (sin red, curl ausente) solo se loguea.
-pub fn send(n: &Ntfy, title: &str, body: &str, urgent: bool) {
-    let args = curl_args(n, title, body, urgent);
+/// Publica en un hilo propio; un fallo (sin red, curl ausente) solo se loguea, sin reintento.
+pub fn send(n: &Ntfy, title: &str, body: &str, priority: u8) {
+    use std::io::Write;
+    use std::process::Stdio;
+    let args = curl_args(n, title, body, priority);
+    let config = curl_config(n);
     std::thread::spawn(move || {
         let mut cmd = std::process::Command::new("curl");
-        cmd.args(&args);
+        cmd.args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         #[cfg(windows)]
         {
             // sin esto, cada envío abre una consola un instante (el .exe no tiene consola)
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        match cmd.output() {
+        let r = cmd.spawn().and_then(|mut child| {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(config.as_deref().unwrap_or("").as_bytes())?;
+            } // stdin cerrado aquí: curl deja de esperar la config
+            child.wait_with_output()
+        });
+        match r {
             Ok(o) if o.status.success() => tracing::debug!("ntfy: enviado"),
             Ok(o) => tracing::warn!("ntfy: falló ({}): {}", o.status, String::from_utf8_lossy(&o.stderr).trim()),
             Err(e) => tracing::warn!("ntfy: no se pudo ejecutar curl: {e}"),
@@ -70,7 +89,7 @@ mod tests {
 
     #[test]
     fn json_post_with_priority_and_escaping() {
-        let a = curl_args(&n(""), "db-monitor: sin conexión", "dice \"hola\"\\\nfin", true);
+        let a = curl_args(&n(""), "db-monitor: sin conexión", "dice \"hola\"\\\nfin", 4);
         assert_eq!(a.last().unwrap(), "https://ntfy.sh");
         assert!(!a.iter().any(|x| x.starts_with("Authorization")));
         let json = &a[a.iter().position(|x| x == "--data-binary").unwrap() + 1];
@@ -83,9 +102,19 @@ mod tests {
 
     #[test]
     fn recovery_is_normal_priority_and_token_is_sent() {
-        let a = curl_args(&n("tk_123"), "db-monitor: OK", "T volvió", false);
-        assert!(a.contains(&"Authorization: Bearer tk_123".to_string()));
+        let a = curl_args(&n("tk_123"), "db-monitor: OK", "T volvió", 3);
+        assert_eq!(curl_config(&n("tk_123")).unwrap(), "header = \"Authorization: Bearer tk_123\"\n");
         let json = &a[a.iter().position(|x| x == "--data-binary").unwrap() + 1];
         assert!(json.ends_with(r#""priority":3,"tags":["white_check_mark"]}"#), "{json}");
+    }
+
+    #[test]
+    fn token_nunca_en_args() {
+        let a = curl_args(&n("tk_\"x"), "t", "b", 4);
+        assert!(!a.iter().any(|x| x.contains("tk_")), "{a:?}");
+        assert!(a.windows(2).any(|w| w == ["--config", "-"]));
+        assert_eq!(curl_config(&n("tk_\"x")).unwrap(), "header = \"Authorization: Bearer tk_\\\"x\"\n");
+        assert!(curl_config(&n("")).is_none());
+        assert!(!curl_args(&n(""), "t", "b", 3).iter().any(|x| x == "--config"));
     }
 }

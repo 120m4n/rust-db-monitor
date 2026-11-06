@@ -150,7 +150,7 @@ fn main() {
                 tracing::info!("aviso: {} · {body}", tx.inicio_titulo);
                 desktop::toast(&tx.inicio_titulo, &body);
                 if let Some(n) = &ntfy {
-                    ntfy::send(n, &tx.inicio_titulo, &body, false);
+                    ntfy::send(n, &tx.inicio_titulo, &body, 3);
                 }
                 Vec::new()
             }
@@ -194,7 +194,7 @@ fn main() {
                     tracing::info!("aviso: {title} · {body}");
                     desktop::toast(&title, &body);
                     if let Some(n) = &ntfy {
-                        ntfy::send(n, &title, &body, urgent);
+                        ntfy::send(n, &title, &body, if urgent { 4 } else { 3 });
                     }
                 }
                 Action::ShowWarning(text) => warning.show(&text),
