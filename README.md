@@ -299,6 +299,12 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 **Pendiente de verificar**
 - [ ] Ejecutar en Windows 11: tarea programada (`install-task.ps1`), remitente propio del toast (segundo arranque), actualización de la hora en la ventana abierta, icono, toasts, ventana de advertencia (cierre automático) y diálogos de error; medir RAM (< 100 MB) y CPU (< 5 %) en operación continua.
 - [ ] Oracle: comprobar que `set_call_timeout` corta consultas lentas y cómo se convierten DATE, LOB y RAW a texto.
+- [ ] HU-06 en Windows: `config.toml` en claro guardado con el Bloc de notas → primer arranque con toast y valores `GSR:`, comentarios/CRLF/ACL intactos (`icacls`); segundo arranque sin toast; `config.toml` de solo lectura → ventana de error; doble clic + tarea a la vez → una sola reescritura.
+- [ ] HU-07 en Windows (`metodo = "dpapi"`): cifrado desde la tarea; `GSR:` → `DPAPI:`; arranque manual con otro usuario no reescribe; `config.toml` copiado a otro equipo → ventana de error y recuperación escribiendo en claro.
+- [ ] HU-04: la ventana de advertencia reaparece sin robar el foco; `.exe` firmado sin aviso de SmartScreen (requiere certificado de TI).
+- [ ] HU-05: el token no aparece en la línea de comandos de `curl.exe` (Administrador de tareas) y el aviso llega al móvil.
+- [ ] HU-08: `heartbeat` a +2 min → llega un aviso; reiniciar la app → no se repite ese día.
+- [ ] HU-01: `cargo test --test db_targets -- --ignored --test-threads=1` con Postgres real (incluye `pg_interrupt_cancela_en_el_servidor`).
 
 **Funcionalidad**
 - [ ] TLS para PostgreSQL.

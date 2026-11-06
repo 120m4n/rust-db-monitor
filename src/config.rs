@@ -235,6 +235,15 @@ impl Config {
 /// Sustituye en memoria los valores `GSR:`/`DPAPI:` de `credenciales::CAMPOS` por su valor en claro.
 fn desofuscar_campos(raw: &mut toml::Table) -> anyhow::Result<()> {
     for (sec, key) in credenciales::CAMPOS {
+        // la variable de entorno tiene prioridad: el valor del archivo ni se lee (puede ser un DPAPI de otro equipo)
+        let env = match (sec, key) {
+            ("database", "password") => "DB_PASSWORD",
+            ("ntfy", "token") => "NTFY_TOKEN",
+            _ => "",
+        };
+        if !env.is_empty() && std::env::var_os(env).is_some() {
+            continue;
+        }
         let Some(toml::Value::Table(t)) = raw.get_mut(sec) else { continue };
         if let Some(toml::Value::String(v)) = t.get_mut(key) {
             if credenciales::protegido(v) {
@@ -454,8 +463,12 @@ window_secs = 120
         assert_eq!((c.database.user.as_str(), c.database.password.as_str()), ("u", "filepw"));
         std::env::set_var("DB_PASSWORD", "env");
         let c = load(&p).unwrap();
+        // con DB_PASSWORD definida, un password del archivo ilegible (DPAPI de otro equipo, GSR: dañado) no impide arrancar
+        let roto = write(d.path(), &MIN.replace("user = \"u\"", "user = \"u\"\npassword = \"DPAPI:AQAA\""));
+        let r = load(&roto);
         std::env::remove_var("DB_PASSWORD");
         assert_eq!(c.database.password, "env");
+        assert_eq!(r.unwrap().database.password, "env");
     }
 
     #[test]
