@@ -57,8 +57,17 @@ fn main() {
     let protegido = credenciales::proteger_archivo(&path).unwrap_or_else(|e| fatal(&tx.app, &format!("{e:#}")));
 
     // el guard debe soltarse antes de exit para vaciar el log
-    let (file, guard) =
-        tracing_appender::non_blocking(tracing_appender::rolling::daily(&cfg.logging.dir, "db-monitor.log"));
+    config::podar_logs(&cfg.logging.dir, cfg.logging.max_files);
+    let mut rolling = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix(config::LOG_PREFIX);
+    if cfg.logging.max_files > 0 {
+        rolling = rolling.max_log_files(cfg.logging.max_files); // poda en cada cambio de día
+    }
+    let rolling = rolling
+        .build(&cfg.logging.dir)
+        .unwrap_or_else(|e| fatal(&tx.app, &format!("no se pudo abrir la carpeta de logs {}: {e}", cfg.logging.dir.display())));
+    let (file, guard) = tracing_appender::non_blocking(rolling);
     tracing_subscriber::registry()
         .with(EnvFilter::new(&cfg.logging.level)) // nivel ya validado en config
         .with(fmt::layer().with_writer(file).with_ansi(false))

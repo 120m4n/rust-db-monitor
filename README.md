@@ -166,6 +166,7 @@ Un salto de línea se escribe `\n`. ntfy recibe los mismos títulos y textos que
 |---|---|---|
 | `dir` | `logs` | Carpeta; un archivo por día: `db-monitor.log.AAAA-MM-DD` |
 | `level` | `info` | `error`, `warn`, `info`, `debug`, `trace` |
+| `max_files` | `30` | Días de logs que se conservan; los `db-monitor.log.*` más antiguos se borran al arrancar y en cada cambio de día (nunca otros archivos). `0` = no se borran |
 
 Los logs viejos no se borran solos.
 
@@ -286,7 +287,6 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 - [ ] Detectar UPDATE y DELETE (hoy solo registros nuevos).
 
 **Robustez**
-- [ ] Rotación con límite de archivos de log (`max_log_files`); hoy no se borran solos.
 - [ ] Abrir SQLite en solo lectura y tratar un archivo inexistente como error de configuración.
 - [ ] Hacer que `non_blocking` no pierda líneas de log en ráfagas.
 - [ ] Usar tablas distintas en los tests de Postgres para poder ejecutarlos en paralelo.

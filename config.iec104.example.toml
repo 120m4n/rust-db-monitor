@@ -52,3 +52,4 @@ backoff_max_secs = 300
 [logging]
 dir = "logs"
 level = "info"
+# max_files = 30            # días de logs que se conservan (0 = no borrar)

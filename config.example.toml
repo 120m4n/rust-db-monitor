@@ -49,3 +49,4 @@ backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 
 [logging]
 dir = "logs"               # un archivo por día: db-monitor.log.AAAA-MM-DD
 level = "info"             # error | warn | info | debug | trace
+# max_files = 30            # días de logs que se conservan (0 = no borrar)

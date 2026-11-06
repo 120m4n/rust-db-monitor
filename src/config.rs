@@ -123,11 +123,39 @@ pub struct Logging {
     pub dir: PathBuf,
     #[serde(default = "d_level")]
     pub level: String,
+    /// Días de logs que se conservan; 0 = no se borran.
+    #[serde(default = "d_max_files")]
+    pub max_files: usize,
 }
 
 impl Default for Logging {
     fn default() -> Self {
-        Logging { dir: d_log_dir(), level: d_level() }
+        Logging { dir: d_log_dir(), level: d_level(), max_files: d_max_files() }
+    }
+}
+
+/// Prefijo de los logs diarios: `db-monitor.log.AAAA-MM-DD`.
+pub const LOG_PREFIX: &str = "db-monitor.log";
+
+/// Borra los `db-monitor.log.*` más antiguos de `dir` que excedan `max` (0 = no borra nada).
+/// Nunca toca otros archivos. Un fallo al borrar solo se loguea.
+pub fn podar_logs(dir: &Path, max: usize) {
+    if max == 0 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefijo = format!("{LOG_PREFIX}.");
+    let mut logs: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with(&prefijo)) && e.path().is_file())
+        .map(|e| e.path())
+        .collect();
+    logs.sort(); // AAAA-MM-DD: orden alfabético = cronológico
+    let sobran = logs.len().saturating_sub(max);
+    for p in &logs[..sobran] {
+        if let Err(e) = std::fs::remove_file(p) {
+            tracing::warn!("no se pudo borrar el log antiguo {}: {e}", p.display());
+        }
     }
 }
 
@@ -138,6 +166,7 @@ fn d_backoff_max() -> u64 { 300 }
 fn d_ntfy_server() -> String { "https://ntfy.sh".into() }
 fn d_log_dir() -> PathBuf { "logs".into() }
 fn d_level() -> String { "info".into() }
+fn d_max_files() -> usize { 30 }
 
 impl Config {
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -460,6 +489,31 @@ window_secs = 120
         let body = |l: &str| format!("{MIN}[logging]\nlevel = \"{l}\"\n");
         assert!(load(&write(d.path(), &body("verbose"))).is_err());
         assert!(load(&write(d.path(), &body("debug"))).is_ok());
+    }
+
+    #[test]
+    fn retencion_borra_solo_logs_propios() {
+        let d = tempfile::tempdir().unwrap();
+        for i in 1..=35 {
+            std::fs::write(d.path().join(format!("db-monitor.log.2026-01-{i:02}")), "x").unwrap();
+        }
+        std::fs::write(d.path().join("otro.txt"), "x").unwrap();
+        std::fs::write(d.path().join("db-monitor.lock"), "x").unwrap();
+        podar_logs(d.path(), 30);
+        let mut quedan: Vec<_> = std::fs::read_dir(d.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        quedan.sort();
+        assert_eq!(quedan.len(), 32, "{quedan:?}");
+        assert_eq!(quedan[0], "db-monitor.lock");
+        assert_eq!(quedan[1], "db-monitor.log.2026-01-06");
+        assert!(quedan.contains(&"otro.txt".to_string()));
+        podar_logs(d.path(), 0); // 0 = sin borrado
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 32);
+    }
+
+    #[test]
+    fn max_files_por_defecto_30() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(load(&write(d.path(), MIN)).unwrap().logging.max_files, 30);
     }
 
     #[test]
