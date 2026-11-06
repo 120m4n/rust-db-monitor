@@ -20,7 +20,7 @@ pub fn backoff(attempt: u32, max_secs: u64) -> Duration {
 }
 
 /// Bucle principal: conecta (con backoff), valida la tabla una vez y cuenta filas recientes cada `interval_secs`.
-/// Solo devuelve `Err` si la tabla o sus columnas no sirven; vuelve `Ok` al disparar `shutdown`.
+/// Solo devuelve `Err` si la tabla o sus columnas no sirven (al arrancar o, después, si dejan de existir); vuelve `Ok` al disparar `shutdown`.
 /// `on_check` recibe cada resultado; `Fresh`/`Stale` solo después de validar la tabla.
 pub async fn run(
     cfg: Config,
@@ -85,6 +85,10 @@ pub async fn run(
                     _ = &mut shutdown => { client.interrupt(); return stopped() },
                     r = timeout(query_timeout, freshness::recent_count(&client, cfg.database.kind, f)) => match r {
                         Ok(Ok(n)) => n,
+                        // la tabla se validó al arrancar: si ahora no existe, es un error de operación, no de red
+                        Ok(Err(e)) if freshness::tabla_inexistente(&e) => {
+                            return Err(e.context(format!("la tabla `{}` dejó de estar disponible", f.table)));
+                        }
                         Ok(Err(e)) => { tracing::warn!("chequeo de frescura fallido: {e:#}"); break 'session true; }
                         Err(_) => {
                             tracing::warn!("chequeo de frescura excedió {}s", f.query_timeout_secs);

@@ -24,6 +24,7 @@ window_secs = 120          # ventana sin filas que dispara el aviso (>= 1)
 interval_secs = 60         # segundos entre chequeos (>= 1)
 query_timeout_secs = 30    # mantenlo menor que interval_secs
 backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 2 s, 4 s…)
+# clock = "utc"            # zona de time_column: utc | local (por defecto: utc en sqlite, local en postgres/oracle)
 
 # Opcional. Reenvía los avisos (los mismos que los toasts) a ntfy, p. ej. a la app del móvil.
 # Prioridad alta al pasar a rojo o amarillo, normal al recuperarse. Envía con el curl del sistema.

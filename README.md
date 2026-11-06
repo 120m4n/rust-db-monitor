@@ -70,13 +70,17 @@ Avisa si una tabla no recibe filas nuevas.
 | `interval_secs` | `60` | Segundos entre chequeos (≥ 1) |
 | `query_timeout_secs` | `30` | Timeout de cada consulta. Mantenlo menor que `interval_secs` |
 | `backoff_max_secs` | `300` | Espera máxima entre reintentos de conexión (1 s, 2 s, 4 s… hasta este tope) |
+| `clock` | sqlite `utc`, resto `local` | Zona en la que `time_column` guarda la hora: `utc` o `local` (hora del servidor de BD). Si el adquisidor guarda UTC y el servidor está en hora local, pon `utc`; si no, la ventana queda corrida varias horas |
 
 En cada ciclo cuenta las filas con `time_column` dentro de los últimos `window_secs`, usando el reloj de la base de datos:
 
 - Hay filas → `INFO frescura: N registros ...`
 - No hay → `WARN sin registros nuevos en 'tabla' durante los últimos Ns` (en cada ciclo mientras siga vacía).
 
-La existencia de la tabla y las columnas se valida **una sola vez**, en la primera conexión; si no existen, el proceso termina con error.
+La existencia de la tabla y las columnas se valida **una sola vez**, en la primera conexión; si no existen, el proceso termina con error. Si la tabla o una columna desaparece **después** (p. ej. un `DROP`), también termina con error ("la tabla … dejó de estar disponible"), avisa por ntfy si está configurado y no se informa como caída de conexión.
+
+- **Índice:** crea un índice sobre `time_column` (`CREATE INDEX ix_tabla_ts ON tabla(time_column)`). Sin él, cada chequeo recorre la tabla completa en producción.
+- **Fechas futuras:** las filas con `time_column` más de 5 minutos en el futuro (reloj del adquisidor adelantado) no cuentan como recientes.
 
 Un `config.toml` de versiones anteriores con `[monitor]` da error: la sección ya no existe; mueve `interval_secs`, `query_timeout_secs` y `backoff_max_secs` a `[freshness]` y borra `query` y `state_file`.
 
@@ -126,6 +130,7 @@ Una clave mal escrita o una variable que ese texto no admite impide arrancar y m
 | `estado.sin_datos` | Menú y tooltip, en rojo | `Sin registros en {periodo} · chequeo {hora}` | `{hora}` |
 | `estado.sin_conexion` | Menú y tooltip, en amarillo | `Sin conexión · reintentando · desde {desde}` | `{desde}` (hora del corte) |
 | `ya_en_ejecucion` | Aviso al abrir una segunda instancia | `{app} ya está en ejecución` | |
+| `detenido.titulo` | Aviso ntfy al detenerse por un error fatal (el cuerpo es el error) | `{app}: detenido` | |
 | `credenciales.titulo` / `.cuerpo` | Toast al ofuscar credenciales en claro (ver abajo) | `{app}: credenciales protegidas` / `Credenciales visibles detectadas, iniciando el proceso de cifrado` | |
 
 ```toml

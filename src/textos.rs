@@ -33,6 +33,8 @@ pub struct Textos {
     pub ya_en_ejecucion: String,
     pub credenciales_titulo: String,
     pub credenciales_cuerpo: String,
+    /// Título del aviso ntfy al detenerse por un error fatal; el cuerpo es el error.
+    pub detenido_titulo: String,
 }
 
 impl Default for Textos {
@@ -60,6 +62,7 @@ impl Default for Textos {
             ya_en_ejecucion: s("{app} ya está en ejecución"),
             credenciales_titulo: s("{app}: credenciales protegidas"),
             credenciales_cuerpo: s("Credenciales visibles detectadas, iniciando el proceso de cifrado"),
+            detenido_titulo: s("{app}: detenido"),
         }
     }
 }
@@ -68,7 +71,7 @@ type Campo<'a> = (&'static str, &'a mut String, &'static [&'static str]);
 
 impl Textos {
     /// Clave en `[textos]`, texto y variables propias (además de las globales).
-    fn campos(&mut self) -> [Campo<'_>; 21] {
+    fn campos(&mut self) -> [Campo<'_>; 22] {
         [
             ("app", &mut self.app, &[]),
             ("tabla", &mut self.tabla, &[]),
@@ -91,6 +94,7 @@ impl Textos {
             ("ya_en_ejecucion", &mut self.ya_en_ejecucion, &[]),
             ("credenciales.titulo", &mut self.credenciales_titulo, &[]),
             ("credenciales.cuerpo", &mut self.credenciales_cuerpo, &[]),
+            ("detenido.titulo", &mut self.detenido_titulo, &[]),
         ]
     }
 
@@ -214,6 +218,7 @@ mod tests {
         assert_eq!(t.sin_datos_ventana, "Sin registros nuevos en T en los últimos 3 minutos.\nÚltimo chequeo: {hora}");
         assert_eq!(t.ya_en_ejecucion, "db-monitor ya está en ejecución");
         assert_eq!(t.credenciales_titulo, "db-monitor: credenciales protegidas");
+        assert_eq!(t.detenido_titulo, "db-monitor: detenido");
         assert_eq!(t.credenciales_cuerpo, "Credenciales visibles detectadas, iniciando el proceso de cifrado");
     }
 

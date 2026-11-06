@@ -172,6 +172,10 @@ fn main() {
                     Ok(()) => 0,
                     Err(msg) => {
                         tracing::error!("{msg}");
+                        // antes de la ventana, que bloquea hasta que alguien la cierre
+                        if let Some(n) = &ntfy {
+                            ntfy::send(n, &tx.detenido_titulo, &msg, 4);
+                        }
                         desktop::error_box(&tx.app, &msg);
                         1
                     }

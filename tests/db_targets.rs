@@ -190,6 +190,7 @@ fn fresh() -> Freshness {
         interval_secs: 1,
         query_timeout_secs: 5,
         backoff_max_secs: 2,
+        clock: None,
     }
 }
 
@@ -296,6 +297,32 @@ async fn run_fails_late_when_table_missing_after_outage() {
     create.await.unwrap();
     assert!(format!("{:#}", r.unwrap_err()).contains("ev"));
     assert!(checks.contains(&Check::Failed), "{checks:?}");
+}
+
+#[tokio::test]
+async fn sqlite_fila_futura_no_cuenta() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_with_ev(d.path(), "(1, datetime('now','+1 hour')), (2, datetime('now','+1 minute'))");
+    let c = connect(&database).await.unwrap();
+    // +1 h queda fuera (reloj del adquisidor adelantado); +1 min entra en la tolerancia
+    assert_eq!(recent_count(&c, Kind::Sqlite, &fresh()).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn sqlite_tabla_borrada_en_marcha_es_fatal() {
+    let d = tempfile::tempdir().unwrap();
+    let database = sqlite_with_ev(d.path(), "(1, datetime('now'))");
+    let path = database.dbname.clone();
+    let drop_table = tokio::task::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        rusqlite::Connection::open(path).unwrap().execute_batch("DROP TABLE ev;").unwrap();
+    });
+    let (r, checks) = run_collect(cfg(database), 6000).await;
+    drop_table.await.unwrap();
+    let e = format!("{:#}", r.expect_err("una tabla borrada en marcha debe detener el monitor"));
+    assert!(e.contains("dejó de estar disponible") && e.contains("ev"), "{e}");
+    assert!(checks.iter().any(|c| matches!(c, Check::Fresh { .. })), "{checks:?}");
+    assert!(!checks.contains(&Check::Failed), "no debe informarse como caída de conexión: {checks:?}");
 }
 
 // ---- revisión final: validación colgada ----

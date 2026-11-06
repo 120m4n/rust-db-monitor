@@ -57,6 +57,16 @@ pub struct Freshness {
     pub query_timeout_secs: u64,
     #[serde(default = "d_backoff_max")]
     pub backoff_max_secs: u64,
+    /// Zona de `time_column`; sin poner: utc en sqlite, local (hora del servidor) en postgres/oracle.
+    #[serde(default)]
+    pub clock: Option<Clock>,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Clock {
+    Utc,
+    Local,
 }
 
 /// Los nombres van sin comillas dentro del SQL: solo identificadores simples.
