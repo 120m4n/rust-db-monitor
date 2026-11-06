@@ -216,6 +216,7 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 
 - **Reconexión:** si falla la conexión o una consulta, espera con backoff exponencial (hasta `backoff_max_secs`) y reintenta. Nunca termina por errores de red o de BD.
 - **Errores fatales (salen con código 1):** config inválida, tabla o columnas de `[freshness]` inexistentes.
+- **Config estricta:** una clave desconocida en cualquier sección (p. ej. `pasword` mal escrito), `query_timeout_secs` mayor o igual que `interval_secs`, `connect_timeout_secs = 0` o un `level` que no sea `error`/`warn`/`info`/`debug`/`trace` impiden arrancar y la ventana de error nombra la clave. Al actualizar desde una versión anterior, revisa estos puntos en tu `config.toml`.
 - **Apagado:** menú **Salir** (o Ctrl-C si se lanzó desde una terminal): cierra la conexión, vacía los logs y sale con código 0 (máximo ~2 s).
 
 ## Limitaciones conocidas
@@ -249,7 +250,6 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 
 **Robustez**
 - [ ] Rotación con límite de archivos de log (`max_log_files`); hoy no se borran solos.
-- [ ] Validar `query_timeout_secs < interval_secs`.
 - [ ] No mostrar la línea del password en los errores de sintaxis de `config.toml`.
 - [ ] Abrir SQLite en solo lectura y tratar un archivo inexistente como error de configuración.
 - [ ] Keepalives de TCP más cortos en PostgreSQL (hoy tardan 2 h en detectar una conexión muerta).

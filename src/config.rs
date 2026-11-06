@@ -7,6 +7,7 @@ use serde::Deserialize;
 use crate::textos::Textos;
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub database: Database,
     /// Avisa si la tabla no recibe filas nuevas en `window_secs`.
@@ -22,6 +23,7 @@ pub struct Config {
 }
 
 #[derive(Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Ntfy {
     /// Tema; quien se suscribe a él recibe los avisos. Solo letras, dígitos, `-` y `_`.
     pub topic: String,
@@ -39,6 +41,7 @@ impl fmt::Debug for Ntfy {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Freshness {
     /// `tabla` o `esquema.tabla`.
     pub table: String,
@@ -73,6 +76,7 @@ pub enum Kind {
 }
 
 #[derive(Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Database {
     pub kind: Kind,
     #[serde(default)]
@@ -102,6 +106,7 @@ impl fmt::Debug for Database {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Logging {
     #[serde(default = "d_log_dir")]
     pub dir: PathBuf,
@@ -143,6 +148,15 @@ impl Config {
         }
         if f.interval_secs == 0 {
             bail!("freshness.interval_secs must be >= 1");
+        }
+        if f.query_timeout_secs >= f.interval_secs {
+            bail!("freshness.query_timeout_secs ({}) must be < interval_secs ({})", f.query_timeout_secs, f.interval_secs);
+        }
+        if db.connect_timeout_secs == 0 {
+            bail!("database.connect_timeout_secs must be >= 1");
+        }
+        if self.logging.level.parse::<tracing_subscriber::filter::LevelFilter>().is_err() {
+            bail!("logging.level `{}` must be error, warn, info, debug or trace", self.logging.level);
         }
         if let Some(n) = &self.ntfy {
             if n.topic.is_empty() || !n.topic.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')) {
@@ -342,6 +356,43 @@ window_secs = 120
         assert_eq!(c.database.password, "s3cr3t'\"x");
         let dbg = format!("{:?}", c.database);
         assert!(!dbg.contains("s3cr3t") && dbg.contains("***"));
+    }
+
+    #[test]
+    fn rejects_unknown_key_in_any_section() {
+        let d = tempfile::tempdir().unwrap();
+        for (body, key) in [
+            (MIN.replace("user = \"u\"", "user = \"u\"\npasword = \"x\""), "pasword"),
+            (format!("{MIN}intervalo = 5\n"), "intervalo"),
+            (format!("{MIN}[logging]\nnivel = \"info\"\n"), "nivel"),
+            (format!("{MIN}[ntfy]\ntopic = \"t\"\ntopik = \"x\"\n"), "topik"),
+        ] {
+            let e = load(&write(d.path(), &body)).unwrap_err();
+            assert!(format!("{e:#}").contains(key), "{key}: {e:#}");
+        }
+    }
+
+    #[test]
+    fn rejects_query_timeout_not_below_interval() {
+        let d = tempfile::tempdir().unwrap();
+        let body = |q: u64| format!("{MIN}interval_secs = 30\nquery_timeout_secs = {q}\n");
+        assert!(load(&write(d.path(), &body(30))).is_err());
+        assert!(load(&write(d.path(), &body(29))).is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_connect_timeout() {
+        let d = tempfile::tempdir().unwrap();
+        let body = MIN.replace("dbname = \"d\"", "dbname = \"d\"\nconnect_timeout_secs = 0");
+        assert!(load(&write(d.path(), &body)).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_log_level() {
+        let d = tempfile::tempdir().unwrap();
+        let body = |l: &str| format!("{MIN}[logging]\nlevel = \"{l}\"\n");
+        assert!(load(&write(d.path(), &body("verbose"))).is_err());
+        assert!(load(&write(d.path(), &body("debug"))).is_ok());
     }
 
     #[test]
