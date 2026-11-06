@@ -33,11 +33,19 @@ pub struct Ntfy {
     /// Token de acceso (servidores con autenticación); `NTFY_TOKEN` tiene prioridad.
     #[serde(default)]
     pub token: String,
+    /// Hora local `HH:MM` del aviso diario "sigo vivo"; sin poner, no se envía.
+    #[serde(default)]
+    pub heartbeat: Option<String>,
 }
 
 impl fmt::Debug for Ntfy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Ntfy").field("topic", &self.topic).field("server", &self.server).field("token", &"***").finish()
+        f.debug_struct("Ntfy")
+            .field("topic", &self.topic)
+            .field("server", &self.server)
+            .field("token", &"***")
+            .field("heartbeat", &self.heartbeat)
+            .finish()
     }
 }
 
@@ -205,6 +213,9 @@ impl Config {
             if !(n.server.starts_with("https://") || n.server.starts_with("http://")) {
                 bail!("ntfy.server `{}` must start with https:// or http://", n.server);
             }
+            if let Some(h) = &n.heartbeat {
+                crate::heartbeat::parse_hora(h).context("ntfy.heartbeat")?;
+            }
         }
         Ok(())
     }
@@ -354,6 +365,10 @@ window_secs = 120
         assert!(load(&write(d.path(), &with("sala control"))).is_err());
         let bad_server = format!("{}server = \"ntfy.sh\"\n", with("t"));
         assert!(load(&write(d.path(), &bad_server)).is_err());
+        let hb = |h: &str| format!("{}heartbeat = \"{h}\"\n", with("t"));
+        assert_eq!(load(&write(d.path(), &hb("08:00"))).unwrap().ntfy.unwrap().heartbeat.as_deref(), Some("08:00"));
+        let e = load(&write(d.path(), &hb("25:00"))).unwrap_err();
+        assert!(format!("{e:#}").contains("ntfy.heartbeat"), "{e:#}");
     }
 
     #[test]

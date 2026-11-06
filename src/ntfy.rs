@@ -84,7 +84,7 @@ mod tests {
     use super::*;
 
     fn n(token: &str) -> Ntfy {
-        Ntfy { topic: "sala-control".into(), server: "https://ntfy.sh/".into(), token: token.into() }
+        Ntfy { topic: "sala-control".into(), server: "https://ntfy.sh/".into(), token: token.into(), heartbeat: None }
     }
 
     #[test]

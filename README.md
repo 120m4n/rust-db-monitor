@@ -99,6 +99,7 @@ Reenvía los avisos a [ntfy](https://ntfy.sh) para recibirlos en el móvil o en 
 | `topic` | — | Tema (letras, dígitos, `-`, `_`). En ntfy.sh los temas son públicos: usa un nombre difícil de adivinar |
 | `server` | `https://ntfy.sh` | Servidor ntfy (o uno propio) |
 | `token` | vacío | Token de acceso para servidores con autenticación. Mejor la variable de entorno `NTFY_TOKEN`, que tiene prioridad |
+| `heartbeat` | sin poner | Hora local `HH:MM` (p. ej. `"08:00"`) del aviso diario "sigo vigilando" con el estado actual. Prioridad baja en verde, alta en rojo o amarillo. Si el equipo arranca después de esa hora, sale al arrancar; nunca más de uno por día (la fecha se guarda en `db-monitor.heartbeat`, junto al `config.toml`). Solo a ntfy, sin toast. Si un día **no llega**, el equipo o la app están caídos |
 
 Usa el `curl` del sistema (incluido en Windows 10/11 y macOS). El token se le pasa por la entrada estándar, no en la línea de comandos, así que no lo ve otro proceso del equipo. Si falla el envío (sin red, servidor caído), queda un `WARN ntfy: …` en el log y el programa sigue; ese aviso **no se reintenta** (el siguiente ciclo envía el que corresponda).
 
@@ -131,6 +132,7 @@ Una clave mal escrita o una variable que ese texto no admite impide arrancar y m
 | `estado.sin_datos` | Menú y tooltip, en rojo | `Sin registros en {periodo} · chequeo {hora}` | `{hora}` |
 | `estado.sin_conexion` | Menú y tooltip, en amarillo | `Sin conexión · reintentando · desde {desde}` | `{desde}` (hora del corte) |
 | `ya_en_ejecucion` | Aviso al abrir una segunda instancia | `{app} ya está en ejecución` | |
+| `heartbeat.titulo` / `.cuerpo` | Aviso diario por ntfy (`[ntfy] heartbeat`) | `{app}: sigo vigilando` / `Aviso diario · {tabla}: {estado}` | `{estado}` (texto del menú), `{hora}` del último chequeo, `{n}` registros (`-` si no está en verde) |
 | `detenido.titulo` | Aviso ntfy al detenerse por un error fatal (el cuerpo es el error) | `{app}: detenido` | |
 | `credenciales.titulo` / `.cuerpo` | Toast al ofuscar credenciales en claro (ver abajo) | `{app}: credenciales protegidas` / `Credenciales visibles detectadas, iniciando el proceso de cifrado` | |
 

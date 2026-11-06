@@ -35,6 +35,8 @@ pub struct Textos {
     pub credenciales_cuerpo: String,
     /// Título del aviso ntfy al detenerse por un error fatal; el cuerpo es el error.
     pub detenido_titulo: String,
+    pub heartbeat_titulo: String,
+    pub heartbeat_cuerpo: String,
 }
 
 impl Default for Textos {
@@ -63,6 +65,8 @@ impl Default for Textos {
             credenciales_titulo: s("{app}: credenciales protegidas"),
             credenciales_cuerpo: s("Credenciales visibles detectadas, iniciando el proceso de cifrado"),
             detenido_titulo: s("{app}: detenido"),
+            heartbeat_titulo: s("{app}: sigo vigilando"),
+            heartbeat_cuerpo: s("Aviso diario · {tabla}: {estado}"),
         }
     }
 }
@@ -71,7 +75,7 @@ type Campo<'a> = (&'static str, &'a mut String, &'static [&'static str]);
 
 impl Textos {
     /// Clave en `[textos]`, texto y variables propias (además de las globales).
-    fn campos(&mut self) -> [Campo<'_>; 22] {
+    fn campos(&mut self) -> [Campo<'_>; 24] {
         [
             ("app", &mut self.app, &[]),
             ("tabla", &mut self.tabla, &[]),
@@ -95,6 +99,8 @@ impl Textos {
             ("credenciales.titulo", &mut self.credenciales_titulo, &[]),
             ("credenciales.cuerpo", &mut self.credenciales_cuerpo, &[]),
             ("detenido.titulo", &mut self.detenido_titulo, &[]),
+            ("heartbeat.titulo", &mut self.heartbeat_titulo, &["estado", "hora", "n"]),
+            ("heartbeat.cuerpo", &mut self.heartbeat_cuerpo, &["estado", "hora", "n"]),
         ]
     }
 
@@ -219,6 +225,7 @@ mod tests {
         assert_eq!(t.ya_en_ejecucion, "db-monitor ya está en ejecución");
         assert_eq!(t.credenciales_titulo, "db-monitor: credenciales protegidas");
         assert_eq!(t.detenido_titulo, "db-monitor: detenido");
+        assert_eq!(t.heartbeat_cuerpo, "Aviso diario · T: {estado}");
         assert_eq!(t.credenciales_cuerpo, "Credenciales visibles detectadas, iniciando el proceso de cifrado");
     }
 

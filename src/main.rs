@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use db_monitor::alerts::{Action, Alerts, Light};
 use db_monitor::monitor::{self, Check};
-use db_monitor::{config, credenciales, desktop, ntfy, textos};
+use db_monitor::{config, credenciales, desktop, heartbeat, ntfy, textos};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -138,11 +138,32 @@ fn main() {
         .unwrap_or_else(|e| fatal(&tx.app, &format!("no se pudo crear el menú: {e}")));
     let log_dir = cfg.logging.dir.clone();
     let ntfy = cfg.ntfy.clone();
+    // aviso diario "sigo vivo": hora ya validada en config; la fecha del último envío va junto al lock
+    let hb_hora = ntfy.as_ref().and_then(|n| n.heartbeat.as_deref()).map(|h| heartbeat::parse_hora(h).expect("validada"));
+    let hb_file = path.parent().unwrap_or(Path::new(".")).join("db-monitor.heartbeat");
     let mut tray: Option<TrayIcon> = None;
     let mut stop_tx = Some(stop_tx);
     let mut guard = Some(guard);
 
     event_loop.run(move |event, _, control_flow| {
+        // ¿toca el aviso diario? (al arrancar después de la hora, o al llegar a ella)
+        if let (Some(hora), Some(n), Event::NewEvents(StartCause::Init | StartCause::ResumeTimeReached { .. })) =
+            (hb_hora, &ntfy, &event)
+        {
+            let ahora = chrono::Local::now().naive_local();
+            if heartbeat::toca(ahora, hora, heartbeat::leer_ultimo(&hb_file)) {
+                let (num, hora_chequeo) = alerts.ultimo();
+                let num = num.map(|x| x.to_string()).unwrap_or_else(|| "-".into());
+                let status = alerts.status();
+                let vars = [("estado", status.as_str()), ("hora", hora_chequeo), ("n", num.as_str())];
+                let (title, body) = (textos::render(&tx.heartbeat_titulo, &vars), textos::render(&tx.heartbeat_cuerpo, &vars));
+                tracing::info!("aviso diario: {title} · {body}");
+                ntfy::send(n, &title, &body, if alerts.light() == Light::Green { 2 } else { 4 });
+                heartbeat::guardar(&hb_file, ahora.date());
+            }
+            let falta = (heartbeat::proximo(ahora, hora) - ahora).to_std().unwrap_or_default();
+            *control_flow = ControlFlow::WaitUntil(Instant::now() + falta);
+        }
         let actions = match event {
             // en macOS el icono no puede crearse antes de que arranque el bucle
             Event::NewEvents(StartCause::Init) => {
@@ -219,6 +240,9 @@ fn main() {
         if let Some(t) = &tray {
             let _ = t.set_tooltip(Some(&status));
         }
-        *control_flow = ControlFlow::Wait;
+        // con heartbeat, el WaitUntil fijado arriba se conserva entre eventos
+        if hb_hora.is_none() {
+            *control_flow = ControlFlow::Wait;
+        }
     });
 }

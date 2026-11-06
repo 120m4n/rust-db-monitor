@@ -4,6 +4,7 @@ pub mod credenciales;
 pub mod db;
 pub mod desktop;
 pub mod freshness;
+pub mod heartbeat;
 pub mod monitor;
 pub mod ntfy;
 pub mod textos;

@@ -126,6 +126,15 @@ impl Alerts {
     }
 
     /// Línea de estado del menú y tooltip.
+    /// Último recuento (solo si el último chequeo fue OK) y hora `HH:MM` del último chequeo.
+    pub fn ultimo(&self) -> (Option<u64>, &str) {
+        let n = match self.last {
+            Last::Fresh(n) => Some(n),
+            _ => None,
+        };
+        (n, &self.last_clock)
+    }
+
     pub fn status(&self) -> String {
         let (tx, hora) = (&self.tx, self.last_clock.as_str());
         match (&self.failing_since, self.announced.is_some(), self.last) {
@@ -174,6 +183,16 @@ mod tests {
         let mut a = alerts(t0, "08:00");
         a.on_check(Fresh { n: 1 }, t0 + 5 * S, "08:00");
         a
+    }
+
+    #[test]
+    fn ultimo_da_n_solo_en_verde_y_la_hora() {
+        let t0 = Instant::now();
+        let mut a = green(t0);
+        a.on_check(Fresh { n: 7 }, t0 + 10 * S, "08:10");
+        assert_eq!(a.ultimo(), (Some(7), "08:10"));
+        a.on_check(Stale, t0 + 20 * S, "08:20");
+        assert_eq!(a.ultimo(), (None, "08:20"));
     }
 
     /// Caída (ya avisada) que empezó en t1.

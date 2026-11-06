@@ -28,6 +28,7 @@ backoff_max_secs = 300
 # [ntfy]
 # topic = "iec104-sala-control-x7k2"   # en ntfy.sh los temas son públicos: nombre difícil de adivinar
 # server = "https://ntfy.sh"
+# heartbeat = "08:00"               # aviso diario "sigo vigilando" (hora local); si no llega, revisar el equipo
 # token = ""                            # mejor: set NTFY_TOKEN=...
 
 # Opcional. Textos personalizados (ejemplo: EnerGis). Lista completa de claves y variables: README, [textos].

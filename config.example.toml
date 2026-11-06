@@ -31,6 +31,7 @@ backoff_max_secs = 300     # espera máxima entre reintentos de conexión (1 s, 
 # [ntfy]
 # topic = "sala-control-db-x7k2"   # letras, dígitos, - y _. En ntfy.sh los temas son públicos: nombre difícil de adivinar
 # server = "https://ntfy.sh"        # o un servidor propio
+# heartbeat = "08:00"               # aviso diario "sigo vigilando" (hora local); si no llega, revisar el equipo
 # token = ""                        # solo servidores con autenticación; mejor: variable de entorno NTFY_TOKEN
 
 # Opcional. Cambia los textos de los avisos; lo que no se ponga conserva el texto por defecto.
