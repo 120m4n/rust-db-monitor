@@ -37,6 +37,8 @@ docker compose run --rm build-windows
 
 Resultado: `dist/windows/db-monitor.exe` (Windows x86_64, toolchain MinGW) las dos plantillas (`config.example.toml`, `config.iec104.example.toml`) y el instalador de la tarea programada (`install-task.ps1`, `db-monitor-task.xml`; ver README, «Arranque automático»). Al final lista las DLL que importa el `.exe`; todas deben ser del sistema (`kernel32.dll`, `ws2_32.dll`, `msvcrt.dll`…). El primer build tarda unos 3 minutos; los siguientes reusan la caché de los volúmenes `cargo-registry` y `target-windows`.
 
+Para firmar el `.exe`, ver [6. Firma del ejecutable](#6-firma-del-ejecutable-certificado-autofirmado).
+
 ## 2. Configuración (`config.toml`)
 
 La configuración es un archivo **TOML** (no XML).
@@ -170,3 +172,90 @@ cargo test --test db_targets -- --ignored --test-threads=1   # Postgres y Oracle
 ```
 
 Los tests de Postgres y Oracle leen `TEST_PG_*` y `TEST_ORA_*` (`HOST`, `PORT`, `USER`, `PASSWORD`, `NAME`).
+
+## 6. Firma del ejecutable (certificado autofirmado)
+
+Sin firma, SmartScreen y algunos antivirus bloquean o advierten sobre `db-monitor.exe`. Para uso interno basta un certificado **autofirmado**, con una condición: hay que instalarlo como de confianza en cada PC donde corra la app. Sin ese paso Windows ve la firma pero no la acepta.
+
+| | Autofirmado | Comercial (DigiCert, Sectigo…) |
+|---|---|---|
+| Costo | Gratis | ~200–500 USD/año |
+| Confianza | Solo en los PCs donde se instale el `.cer` | Cualquier Windows |
+| Uso | PCs de la empresa (sala de control) | Software que se distribuye fuera |
+
+Todo se hace en Windows con PowerShell, sin instalar nada. Conviene hacerlo en el PC de TI, para que la clave privada no salga de allí.
+
+### 6.1 Crear el certificado (una sola vez)
+
+PowerShell como usuario normal (cambia `TI Empresa` por el nombre del área: es el editor que mostrará Windows):
+
+```powershell
+$cert = New-SelfSignedCertificate -Type CodeSigningCert `
+  -Subject "CN=TI Empresa - db-monitor" `
+  -CertStoreLocation Cert:\CurrentUser\My `
+  -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 `
+  -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(5)
+```
+
+### 6.2 Exportar `.cer` (público) y `.pfx` (privado)
+
+```powershell
+mkdir C:\certs
+# público: se instala en los PCs de destino
+Export-Certificate -Cert $cert -FilePath C:\certs\db-monitor-firma.cer
+# respaldo con la clave privada, protegido con contraseña
+$pw = Read-Host "Contraseña del .pfx" -AsSecureString
+Export-PfxCertificate -Cert $cert -FilePath C:\certs\db-monitor-firma.pfx -Password $pw
+```
+
+> El `.pfx` es la llave para firmar: guárdalo en un lugar seguro, **nunca** en el repositorio, el correo ni carpetas compartidas. Quien lo tenga puede firmar programas que esos PCs aceptarán como de confianza. (`.gitignore` ya excluye `*.pfx`.)
+
+### 6.3 Firmar el `.exe`
+
+```powershell
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object Subject -eq "CN=TI Empresa - db-monitor"
+Set-AuthenticodeSignature -FilePath C:\db-monitor\db-monitor.exe -Certificate $cert `
+  -HashAlgorithm SHA256 -TimestampServer http://timestamp.digicert.com
+```
+
+- `-TimestampServer` necesita internet; hace que la firma siga valiendo aunque el certificado expire. Sin internet, quítalo: la firma vale hasta que expire el certificado (5 años).
+- Hay que firmar **cada versión nueva** del `.exe`, y al final: cualquier cambio posterior en el archivo invalida la firma.
+
+**Alternativa desde el build con Docker:** con el `.pfx` del paso 6.2 dentro del repo local (p. ej. `certs/`, ignorado por git):
+
+```sh
+SIGN_PFX=certs/db-monitor-firma.pfx SIGN_PASS='<contraseña>' docker compose run --rm build-windows
+```
+
+Firma `dist/windows/db-monitor.exe` con sello de tiempo y lo verifica (`osslsigncode verify`). Sin `SIGN_PFX` imprime `AVISO: exe sin firmar`.
+
+### 6.4 Instalar la confianza en cada PC de destino
+
+PowerShell **como administrador**, con el `.cer` copiado al PC:
+
+```powershell
+Import-Certificate -FilePath db-monitor-firma.cer -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath db-monitor-firma.cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+```
+
+- `Root`: Windows confía en el certificado.
+- `TrustedPublisher`: acepta al editor sin preguntar.
+
+Con dominio, mejor una vez por GPO: *Configuración del equipo → Directivas → Configuración de Windows → Configuración de seguridad → Directivas de clave pública*, importar el `.cer` en **Entidades de certificación raíz de confianza** y en **Editores de confianza**.
+
+### 6.5 Verificar
+
+```powershell
+Get-AuthenticodeSignature C:\db-monitor\db-monitor.exe | Format-List Status, SignerCertificate
+```
+
+- `Status : Valid` → listo.
+- `UnknownError` → falta el paso 6.4 en ese PC.
+
+También: clic derecho en el `.exe` → Propiedades → **Firmas digitales**.
+
+### 6.6 Problemas frecuentes
+
+- **SmartScreen** depende también de la "reputación" del archivo y solo actúa si el `.exe` llegó desde internet o por correo. Copiado por USB o desde una carpeta de red interna normalmente no aparece; si aparece: `Unblock-File C:\db-monitor\db-monitor.exe`.
+- **Antivirus corporativo:** puede que haya que agregar el editor `TI Empresa - db-monitor` a su lista de permitidos.
+- **Certificado vencido o perdido:** repetir 6.1–6.4 con uno nuevo y volver a firmar; quitar el anterior de `Root` y `TrustedPublisher` en los PCs.
