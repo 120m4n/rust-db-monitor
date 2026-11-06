@@ -31,6 +31,8 @@ pub struct Textos {
     pub estado_sin_datos: String,
     pub estado_sin_conexion: String,
     pub ya_en_ejecucion: String,
+    pub credenciales_titulo: String,
+    pub credenciales_cuerpo: String,
 }
 
 impl Default for Textos {
@@ -56,6 +58,8 @@ impl Default for Textos {
             estado_sin_datos: s("Sin registros en {periodo} · chequeo {hora}"),
             estado_sin_conexion: s("Sin conexión · reintentando · desde {desde}"),
             ya_en_ejecucion: s("{app} ya está en ejecución"),
+            credenciales_titulo: s("{app}: credenciales protegidas"),
+            credenciales_cuerpo: s("Credenciales visibles detectadas, iniciando el proceso de cifrado"),
         }
     }
 }
@@ -64,7 +68,7 @@ type Campo<'a> = (&'static str, &'a mut String, &'static [&'static str]);
 
 impl Textos {
     /// Clave en `[textos]`, texto y variables propias (además de las globales).
-    fn campos(&mut self) -> [Campo<'_>; 19] {
+    fn campos(&mut self) -> [Campo<'_>; 21] {
         [
             ("app", &mut self.app, &[]),
             ("tabla", &mut self.tabla, &[]),
@@ -85,6 +89,8 @@ impl Textos {
             ("estado.sin_datos", &mut self.estado_sin_datos, &["hora"]),
             ("estado.sin_conexion", &mut self.estado_sin_conexion, &["desde"]),
             ("ya_en_ejecucion", &mut self.ya_en_ejecucion, &[]),
+            ("credenciales.titulo", &mut self.credenciales_titulo, &[]),
+            ("credenciales.cuerpo", &mut self.credenciales_cuerpo, &[]),
         ]
     }
 
@@ -207,6 +213,8 @@ mod tests {
         assert_eq!(t.sin_datos_titulo, "db-monitor: sin datos");
         assert_eq!(t.sin_datos_ventana, "Sin registros nuevos en T en los últimos 3 minutos.\nÚltimo chequeo: {hora}");
         assert_eq!(t.ya_en_ejecucion, "db-monitor ya está en ejecución");
+        assert_eq!(t.credenciales_titulo, "db-monitor: credenciales protegidas");
+        assert_eq!(t.credenciales_cuerpo, "Credenciales visibles detectadas, iniciando el proceso de cifrado");
     }
 
     #[test]

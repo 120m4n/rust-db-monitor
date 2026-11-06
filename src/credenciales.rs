@@ -1,7 +1,10 @@
 //! Credenciales ofuscadas en `config.toml` (HU-06): `user`/`password` de `[database]` y `token` de
 //! `[ntfy]` se guardan como `GSR:` + Base64(XOR). Es ofuscación, no cifrado: evita leerlas a simple vista.
 
-use anyhow::{anyhow, bail};
+use std::io::Write;
+use std::path::Path;
+
+use anyhow::{anyhow, bail, Context};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
@@ -62,9 +65,82 @@ pub fn ofuscar_texto(texto: &str) -> anyhow::Result<Option<String>> {
     Ok(Some(format!("{bom}{out}")))
 }
 
+/// Relee `path` y, si tiene credenciales en claro, lo reescribe ofuscadas: escribe `<path>.tmp` y
+/// reemplaza el original (en Windows con `ReplaceFileW`, que conserva ACL y atributos).
+/// `true` si lo reescribió. Un archivo de solo lectura o sin permiso de escritura es error.
+/// Llamar con el lock de instancia tomado.
+pub fn proteger_archivo(path: &Path) -> anyhow::Result<bool> {
+    let texto = std::fs::read_to_string(path).with_context(|| format!("no se pudo leer {}", path.display()))?;
+    let Some(nuevo) = ofuscar_texto(&texto)? else { return Ok(false) };
+    let ctx = || format!("no se pudo ofuscar las credenciales de {}: el archivo debe ser escribible", path.display());
+    // un rename reemplazaría incluso un archivo de solo lectura: comprobar antes que se puede escribir
+    std::fs::OpenOptions::new().write(true).open(path).with_context(ctx)?;
+    let mut tmp_name = path.as_os_str().to_owned();
+    tmp_name.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp_name);
+    let r = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(nuevo.as_bytes())?;
+        f.sync_all()?;
+        drop(f);
+        reemplazar(path, &tmp)
+    })();
+    if r.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    r.with_context(ctx)?;
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn reemplazar(destino: &Path, origen: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+    let w = |p: &Path| p.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
+    let (d, o) = (w(destino), w(origen));
+    // conserva ACL, atributos y fecha de creación del original
+    let ok = unsafe { ReplaceFileW(d.as_ptr(), o.as_ptr(), std::ptr::null(), 0, std::ptr::null(), std::ptr::null()) };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn reemplazar(destino: &Path, origen: &Path) -> std::io::Result<()> {
+    std::fs::set_permissions(origen, std::fs::metadata(destino)?.permissions())?;
+    std::fs::rename(origen, destino)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proteger_archivo_reescribe_una_vez() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("config.toml");
+        std::fs::write(&p, "[database]\nuser = \"u\" # quien\npassword = \"pw\"\n").unwrap();
+        assert!(proteger_archivo(&p).unwrap());
+        let t = std::fs::read_to_string(&p).unwrap();
+        assert!(!t.contains("\"pw\"") && t.contains("password = \"GSR:") && t.contains("# quien"), "{t}");
+        assert!(!proteger_archivo(&p).unwrap());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), t);
+        assert!(!d.path().join("config.toml.tmp").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn proteger_archivo_solo_lectura_es_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("config.toml");
+        let t = "[database]\npassword = \"pw\"\n";
+        std::fs::write(&p, t).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o444)).unwrap();
+        assert!(proteger_archivo(&p).is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), t);
+    }
 
     #[test]
     fn ida_y_vuelta() {

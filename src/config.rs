@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 use serde::Deserialize;
 
+use crate::credenciales;
 use crate::textos::Textos;
 
 #[derive(Deserialize, Clone, Debug)]
@@ -98,7 +99,7 @@ impl fmt::Debug for Database {
             .field("kind", &self.kind)
             .field("host", &self.host)
             .field("port", &self.port)
-            .field("user", &self.user)
+            .field("user", &"***")
             .field("password", &"***")
             .field("dbname", &self.dbname)
             .finish()
@@ -170,12 +171,35 @@ impl Config {
     }
 }
 
+/// Sustituye en memoria los valores `GSR:` de `credenciales::CAMPOS` por su valor en claro.
+fn desofuscar_campos(raw: &mut toml::Table) -> anyhow::Result<()> {
+    for (sec, key) in credenciales::CAMPOS {
+        let Some(toml::Value::Table(t)) = raw.get_mut(sec) else { continue };
+        if let Some(toml::Value::String(v)) = t.get_mut(key) {
+            if v.starts_with(credenciales::PREFIJO) {
+                *v = credenciales::desofuscar(v).with_context(|| format!("{sec}.{key}"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Lee el config, aplica `DB_PASSWORD`, resuelve rutas relativas contra el dir del config y valida.
 pub fn load(path: &Path) -> anyhow::Result<Config> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read config {}", path.display()))?;
-    let mut raw: toml::Table =
-        toml::from_str(&text).with_context(|| format!("invalid config {}", path.display()))?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    // el mensaje de toml cita la línea, que puede ser la del password en claro: solo línea y columna
+    let mut raw: toml::Table = toml::from_str(text).map_err(|e| {
+        let pos = e.span().map(|r| {
+            let antes = &text[..r.start.min(text.len())];
+            let linea = antes.matches('\n').count() + 1;
+            let col = antes.len() - antes.rfind('\n').map_or(0, |i| i + 1) + 1;
+            format!(" en la línea {linea}, columna {col}")
+        });
+        anyhow::anyhow!("invalid config {}: sintaxis TOML inválida{}", path.display(), pos.unwrap_or_default())
+    })?;
+    desofuscar_campos(&mut raw).with_context(|| format!("invalid config {}", path.display()))?;
     if raw.contains_key("monitor") {
         bail!("invalid config {}: la sección [monitor] ya no existe: mueve interval_secs, query_timeout_secs y backoff_max_secs a [freshness] y borra query/state_file", path.display());
     }
@@ -205,6 +229,7 @@ pub fn load(path: &Path) -> anyhow::Result<Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credenciales::ofuscar;
 
     const MIN: &str = r#"
 [database]
@@ -356,6 +381,38 @@ window_secs = 120
         assert_eq!(c.database.password, "s3cr3t'\"x");
         let dbg = format!("{:?}", c.database);
         assert!(!dbg.contains("s3cr3t") && dbg.contains("***"));
+        assert!(!dbg.contains("\"u\""), "user en claro en Debug: {dbg}");
+        // GSR: se desofusca en memoria; DB_PASSWORD sigue teniendo prioridad
+        let gsr = MIN.replace("user = \"u\"", &format!("user = \"{}\"\npassword = \"{}\"", ofuscar("u"), ofuscar("filepw")));
+        let p = write(d.path(), &gsr);
+        let c = load(&p).unwrap();
+        assert_eq!((c.database.user.as_str(), c.database.password.as_str()), ("u", "filepw"));
+        std::env::set_var("DB_PASSWORD", "env");
+        let c = load(&p).unwrap();
+        std::env::remove_var("DB_PASSWORD");
+        assert_eq!(c.database.password, "env");
+    }
+
+    #[test]
+    fn gsr_corrupto_nombra_el_campo() {
+        let d = tempfile::tempdir().unwrap();
+        let body = MIN.replace("user = \"u\"", "user = \"u\"\npassword = \"GSR:%%\"");
+        let e = load(&write(d.path(), &body)).unwrap_err();
+        assert!(format!("{e:#}").contains("database.password"), "{e:#}");
+    }
+
+    #[test]
+    fn acepta_bom() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(load(&write(d.path(), &format!("\u{feff}{MIN}"))).is_ok());
+    }
+
+    #[test]
+    fn error_de_sintaxis_no_muestra_el_secreto() {
+        let d = tempfile::tempdir().unwrap();
+        let body = MIN.replace("user = \"u\"", "user = \"u\"\npassword = \"s3cr3t");
+        let e = format!("{:#}", load(&write(d.path(), &body)).unwrap_err());
+        assert!(!e.contains("s3cr3t") && e.contains("línea 6"), "{e}");
     }
 
     #[test]

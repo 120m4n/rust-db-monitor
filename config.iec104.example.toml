@@ -5,7 +5,7 @@
 kind = "oracle"
 host = "127.0.0.1"         # servidor Oracle
 # port = 1521
-user = "monitor"
+user = "monitor"           # user/password en claro se ofuscan solos (GSR:...) al primer arranque
 dbname = "ORCLPDB1"        # service name
 connect_timeout_secs = 10
 

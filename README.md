@@ -126,6 +126,7 @@ Una clave mal escrita o una variable que ese texto no admite impide arrancar y m
 | `estado.sin_datos` | Menú y tooltip, en rojo | `Sin registros en {periodo} · chequeo {hora}` | `{hora}` |
 | `estado.sin_conexion` | Menú y tooltip, en amarillo | `Sin conexión · reintentando · desde {desde}` | `{desde}` (hora del corte) |
 | `ya_en_ejecucion` | Aviso al abrir una segunda instancia | `{app} ya está en ejecución` | |
+| `credenciales.titulo` / `.cuerpo` | Toast al ofuscar credenciales en claro (ver abajo) | `{app}: credenciales protegidas` / `Credenciales visibles detectadas, iniciando el proceso de cifrado` | |
 
 ```toml
 [textos]
@@ -141,6 +142,17 @@ cuerpo = "Comunicación recuperada. Ingresando nuevos datos correctamente."
 ```
 
 Un salto de línea se escribe `\n`. ntfy recibe los mismos títulos y textos que los toasts. En Windows conviene que el título de la ventana (`sin_datos.titulo`) no coincida con el de otra ventana abierta: se la busca por el título para actualizarla y cerrarla.
+
+### Credenciales ofuscadas (`GSR:`)
+
+`user` y `password` de `[database]` y `token` de `[ntfy]` no quedan legibles en `config.toml`:
+
+- Al arrancar, si alguno está en claro, db-monitor lo ofusca, reescribe `config.toml` y avisa con un toast *"Credenciales visibles detectadas, iniciando el proceso de cifrado"* (y en el log `credenciales ofuscadas en <ruta>`). El valor queda como `password = "GSR:Kx8aBQ..."`.
+- Solo cambian esos valores: se conservan comentarios, orden, codificación (BOM) y saltos de línea del Bloc de notas, y en Windows los permisos del archivo.
+- **Para cambiar una credencial**, escríbela en claro en lugar del valor `GSR:`; se ofusca en el siguiente arranque.
+- Los campos vacíos no se tocan. `DB_PASSWORD` y `NTFY_TOKEN` siguen teniendo prioridad y nunca se escriben en el archivo.
+- Si `config.toml` no se puede escribir (solo lectura, sin permisos) o un valor `GSR:` está dañado, sale una ventana de error y no arranca.
+- **Es ofuscación, no cifrado:** evita leerlas a simple vista, pero quien tenga el `.exe` puede revertirla. La protección real es un usuario de BD de solo lectura (ver [Requisitos por motor](#requisitos-por-motor)); para cifrado ver `[credenciales] metodo = "dpapi"`.
 
 ### `[logging]`
 
@@ -223,7 +235,6 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 
 - Solo detecta registros **nuevos** (por `time_column`), no UPDATE ni DELETE.
 - Sin TLS en PostgreSQL.
-- Un error de sintaxis en `config.toml` puede mostrar por pantalla la línea afectada, incluida la del password si está ahí.
 - En Windows el remitente del toast es `[textos].app`. Para eso db-monitor crea, la primera vez, un acceso directo con ese nombre en el menú Inicio del usuario (`%APPDATA%\Microsoft\Windows\Start Menu\Programs`), sin permisos de administrador. **Esa primera ejecución** los toasts siguen saliendo como "Windows PowerShell": Windows tarda en reconocer el acceso directo nuevo. Desde el siguiente arranque salen con el nombre propio. El log dice cuál se usa (`toasts: remitente …`). Si no se puede crear el acceso directo, siguen como PowerShell.
 - Si se cambia `[textos].app`, el acceso directo con el nombre anterior queda en el menú Inicio; `install-task.ps1 -Desinstalar` borra todos los que apuntan al `.exe`.
 
@@ -250,7 +261,6 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 
 **Robustez**
 - [ ] Rotación con límite de archivos de log (`max_log_files`); hoy no se borran solos.
-- [ ] No mostrar la línea del password en los errores de sintaxis de `config.toml`.
 - [ ] Abrir SQLite en solo lectura y tratar un archivo inexistente como error de configuración.
 - [ ] Keepalives de TCP más cortos en PostgreSQL (hoy tardan 2 h en detectar una conexión muerta).
 - [ ] Hacer que `non_blocking` no pierda líneas de log en ráfagas.

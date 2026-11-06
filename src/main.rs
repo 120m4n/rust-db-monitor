@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use db_monitor::alerts::{Action, Alerts, Light};
 use db_monitor::monitor::{self, Check};
-use db_monitor::{config, desktop, ntfy, textos};
+use db_monitor::{config, credenciales, desktop, ntfy, textos};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -53,6 +53,8 @@ fn main() {
         }
         Err(e) => fatal(&tx.app, &format!("{e:#}")),
     };
+    // con el lock tomado: dos arranques a la vez no reescriben el archivo a la vez
+    let protegido = credenciales::proteger_archivo(&path).unwrap_or_else(|e| fatal(&tx.app, &format!("{e:#}")));
 
     // el guard debe soltarse antes de exit para vaciar el log
     let (file, guard) =
@@ -64,6 +66,10 @@ fn main() {
         .init();
 
     desktop::setup_toasts(&tx.app);
+    if protegido {
+        tracing::info!("credenciales ofuscadas en {}", path.display());
+        desktop::toast(&tx.credenciales_titulo, &tx.credenciales_cuerpo);
+    }
 
     let (db, f) = (&cfg.database, &cfg.freshness);
     tracing::info!(
