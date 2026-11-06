@@ -11,10 +11,18 @@ services:
       - target-windows:/target
     environment:
       CARGO_TARGET_DIR: /target
+      # firma Authenticode opcional: SIGN_PFX = ruta al .pfx dentro de /src (certificado de TI), SIGN_PASS = su clave
+      SIGN_PFX: ${SIGN_PFX:-}
+      SIGN_PASS: ${SIGN_PASS:-}
     command: >
       sh -c "cargo build --release --target x86_64-pc-windows-gnu &&
              mkdir -p dist/windows &&
              cp /target/x86_64-pc-windows-gnu/release/db-monitor.exe config.example.toml config.iec104.example.toml scripts/install-task.ps1 scripts/db-monitor-task.xml dist/windows/ &&
+             if [ -n \"$$SIGN_PFX\" ]; then
+               osslsigncode sign -pkcs12 \"$$SIGN_PFX\" -pass \"$$SIGN_PASS\" -n db-monitor -t http://timestamp.digicert.com -in dist/windows/db-monitor.exe -out dist/windows/db-monitor.signed.exe &&
+               mv dist/windows/db-monitor.signed.exe dist/windows/db-monitor.exe &&
+               osslsigncode verify dist/windows/db-monitor.exe;
+             else echo 'AVISO: exe sin firmar (define SIGN_PFX y SIGN_PASS)'; fi &&
              x86_64-w64-mingw32-objdump -p dist/windows/db-monitor.exe | grep 'DLL Name'"
 
 volumes:

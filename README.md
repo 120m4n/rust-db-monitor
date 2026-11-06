@@ -25,7 +25,7 @@ db-monitor.exe [ruta\a\config.toml] [--tarea]
 
 - Al arrancar sin errores sale un toast "db-monitor en ejecución" que dice dónde está el icono.
 - Los toasts de recuperación salen **solo al cambiar de estado**; los de rojo y amarillo se repiten en cada ciclo mientras dure el problema. Todo toast se reenvía también a ntfy si está configurado.
-- Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró. Nunca hay más de una. Si sigue abierta, en Windows se actualiza la hora del último chequeo. Se cierra sola cuando vuelven los datos.
+- Mientras siga en rojo, la ventana de advertencia vuelve a aparecer en cada ciclo si se cerró, encima de las demás pero **sin quitar el foco** a lo que se esté usando (solo la primera vez de cada episodio rojo se trae al frente). Nunca hay más de una. Si sigue abierta, en Windows se actualiza la hora del último chequeo. Se cierra sola cuando vuelven los datos.
 - **Caída de la base:** avisa (toast y ntfy, prioridad alta) en cuanto falla la conexión o una consulta, y repite el aviso como mucho una vez por `interval_secs` mientras siga caída; los reintentos más seguidos del backoff no lo repiten. Al volver, toast "conexión restablecida".
 - La caída se detecta en el siguiente chequeo: puede tardar hasta `interval_secs`, más `query_timeout_secs` si la consulta se queda colgada. Para enterarse antes, baja `interval_secs`.
 - Menú del icono: estado actual (también como tooltip), **Abrir logs** (abre la carpeta) y **Salir**.
@@ -39,7 +39,8 @@ Tarea programada que lo lanza al iniciar sesión, **en la sesión del usuario** 
 3. Variables como `DB_PASSWORD` deben ser **de usuario** (`setx DB_PASSWORD ...`); toman efecto en el siguiente inicio de sesión.
 
 - Arranca 30 s después de iniciar sesión y se relanza cada 5 min si no está corriendo (también tras **Salir**). Sin límite de duración.
-- Para pararlo del todo: deshabilita la tarea en el Programador de tareas o `install-task.ps1 -Desinstalar`.
+- **Salir** cierra la app, pero la tarea la vuelve a lanzar en 5 minutos: es lo esperado, la vigilancia no se apaga por error. Para pararlo del todo: deshabilita la tarea en el Programador de tareas o `install-task.ps1 -Desinstalar`.
+- `install-task.ps1` comprueba que la carpeta sea escribible y que `config.toml` no sea de solo lectura (logs, lock y ofuscación de credenciales escriben ahí).
 - Si además se abre con doble clic no pasa nada: la tarea lo lanza con `--tarea` y, si ya corre, sale sin avisar.
 - Sin el script: Programador de tareas → **Importar tarea** → `db-monitor-task.xml`, cambiando antes `EQUIPO\usuario` y `C:\db-monitor`.
 
@@ -267,6 +268,8 @@ GRANT SELECT ON esquema.tabla TO monitor;
 cargo test                                   # unitarios + SQLite
 cargo test --test db_targets -- --ignored --test-threads=1   # Postgres y Oracle reales
 ```
+
+**Firma del `.exe`:** con el certificado de firma de código de TI (`.pfx`) dentro del repo o montado en `/src`, `SIGN_PFX=certs/ti.pfx SIGN_PASS=... docker compose run --rm build-windows` firma `dist/windows/db-monitor.exe` (Authenticode con sello de tiempo) y lo verifica. Sin `SIGN_PFX` imprime `AVISO: exe sin firmar`; SmartScreen y algunos antivirus bloquean un `.exe` sin firmar. No subas el `.pfx` al repositorio.
 
 Los tests de Postgres y Oracle leen `TEST_PG_*` y `TEST_ORA_*` (`HOST`, `PORT`, `USER`, `PASSWORD`, `NAME`). El `.exe` de Windows se genera con `docker compose run --rm build-windows` (ver `docs/guia-build-y-prueba.md`).
 

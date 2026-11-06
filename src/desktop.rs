@@ -195,11 +195,13 @@ mod imp {
     pub struct Warning {
         title: String,
         open: Arc<AtomicBool>,
+        /// Ya se mostró en este episodio rojo: las reapariciones no piden el foco.
+        mostrada: bool,
     }
 
     impl Warning {
         pub fn new(title: &str) -> Self {
-            Warning { title: title.into(), open: Arc::new(AtomicBool::new(false)) }
+            Warning { title: title.into(), open: Arc::new(AtomicBool::new(false)), mostrada: false }
         }
 
         fn find(&self) -> HWND {
@@ -223,13 +225,18 @@ mod imp {
                 return;
             }
             let (open, text, title) = (self.open.clone(), text.to_string(), self.title.clone());
+            // la 1.ª vez pide el foco; si el operador la cerró y sigue en rojo, reaparece encima pero
+            // sin quitarle el foco a lo que esté usando
+            let style = if self.mostrada { MB_OK | MB_ICONWARNING | MB_TOPMOST } else { MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND };
+            self.mostrada = true;
             std::thread::spawn(move || {
-                message_box(&text, &title, MB_OK | MB_ICONWARNING | MB_TOPMOST | MB_SETFOREGROUND);
+                message_box(&text, &title, style);
                 open.store(false, Ordering::SeqCst);
             });
         }
 
         pub fn close(&mut self) {
+            self.mostrada = false; // volvieron los datos: el próximo episodio rojo vuelve a pedir el foco
             if !self.open.load(Ordering::SeqCst) {
                 return;
             }

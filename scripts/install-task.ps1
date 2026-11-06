@@ -31,8 +31,18 @@ $Dir = Split-Path $Exe
 if (-not (Test-Path (Join-Path $Dir 'config.toml'))) {
     throw "Falta config.toml en $Dir (copia una plantilla config.*.example.toml)."
 }
-# logs/ y db-monitor.lock se escriben junto a config.toml: la carpeta debe ser escribible por el usuario
-# (no uses Program Files).
+# logs/, db-monitor.lock y la reescritura de config.toml (credenciales GSR:) van en esta carpeta:
+# debe ser escribible por el usuario (no uses Program Files).
+$Prueba = Join-Path $Dir '.escritura-test'
+try {
+    Set-Content -Path $Prueba -Value 'ok' -ErrorAction Stop
+    Remove-Item $Prueba -ErrorAction SilentlyContinue
+} catch {
+    throw "La carpeta $Dir debe ser escribible por el usuario (no uses Program Files): $_"
+}
+if ((Get-Item (Join-Path $Dir 'config.toml')).IsReadOnly) {
+    throw "config.toml es de solo lectura: db-monitor necesita reescribirlo para ofuscar las credenciales."
+}
 
 [xml]$Tarea = Get-Content -Raw -Encoding UTF8 (Join-Path $PSScriptRoot 'db-monitor-task.xml')
 $Tarea.Task.Triggers.LogonTrigger.UserId = $Usuario

@@ -4,3 +4,4 @@ logs/
 state.toml
 .superpowers/
 dist/
+*.pfx
