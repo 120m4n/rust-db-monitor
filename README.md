@@ -224,9 +224,27 @@ La contraseña va por entorno: `set DB_PASSWORD=...` y luego `db-monitor.exe`.
 - **SQLite:** nada extra (va incluido). El archivo debe existir; no se crea.
 - **Oracle:** requiere **Oracle Instant Client** (64 bits) en el `PATH` o junto al `.exe`. En macOS las librerías `.dylib` completas deben estar junto al ejecutable.
 
+### Usuario de solo lectura (recomendado)
+
+db-monitor solo lee la tabla vigilada. Úsalo con un usuario que **solo** tenga `SELECT` sobre esa tabla: si alguien recupera la credencial (la ofuscación `GSR:` no es cifrado), no puede modificar nada. Lo crea el DBA:
+
+```sql
+-- Oracle
+CREATE USER monitor IDENTIFIED BY "<contraseña>";
+GRANT CREATE SESSION TO monitor;
+GRANT SELECT ON esquema.tabla TO monitor;   -- en config: table = "esquema.tabla"
+
+-- PostgreSQL
+CREATE ROLE monitor LOGIN PASSWORD '<contraseña>';
+GRANT CONNECT ON DATABASE mydb TO monitor;
+GRANT USAGE ON SCHEMA esquema TO monitor;
+GRANT SELECT ON esquema.tabla TO monitor;
+```
+
 ## Comportamiento
 
 - **Reconexión:** si falla la conexión o una consulta, espera con backoff exponencial (hasta `backoff_max_secs`) y reintenta. Nunca termina por errores de red o de BD.
+- **Timeouts:** una consulta que pasa de `query_timeout_secs` se cancela también en el servidor (PostgreSQL y Oracle). En PostgreSQL el keepalive TCP (60 s) detecta en minutos una red caída sin aviso. Un connect de Oracle colgado no se puede abortar: mientras siga colgado no se lanza otro (cuenta como intento fallido), así los reintentos no acumulan hilos.
 - **Errores fatales (salen con código 1):** config inválida, tabla o columnas de `[freshness]` inexistentes.
 - **Config estricta:** una clave desconocida en cualquier sección (p. ej. `pasword` mal escrito), `query_timeout_secs` mayor o igual que `interval_secs`, `connect_timeout_secs = 0` o un `level` que no sea `error`/`warn`/`info`/`debug`/`trace` impiden arrancar y la ventana de error nombra la clave. Al actualizar desde una versión anterior, revisa estos puntos en tu `config.toml`.
 - **Apagado:** menú **Salir** (o Ctrl-C si se lanzó desde una terminal): cierra la conexión, vacía los logs y sale con código 0 (máximo ~2 s).
@@ -262,6 +280,5 @@ Iconos: los fuentes son `assets/logo.svg` y `assets/logo-small.svg` (16/24 px). 
 **Robustez**
 - [ ] Rotación con límite de archivos de log (`max_log_files`); hoy no se borran solos.
 - [ ] Abrir SQLite en solo lectura y tratar un archivo inexistente como error de configuración.
-- [ ] Keepalives de TCP más cortos en PostgreSQL (hoy tardan 2 h en detectar una conexión muerta).
 - [ ] Hacer que `non_blocking` no pierda líneas de log en ráfagas.
 - [ ] Usar tablas distintas en los tests de Postgres para poder ejecutarlos en paralelo.

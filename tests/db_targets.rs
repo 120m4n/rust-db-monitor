@@ -37,6 +37,22 @@ async fn assert_three_rows(c: &Client) {
 }
 
 #[tokio::test]
+#[ignore = "requires TEST_PG_* env"]
+async fn pg_interrupt_cancela_en_el_servidor() {
+    let c = connect(&from_env(Kind::Postgres, "TEST_PG")).await.unwrap();
+    let marca = "db_monitor_cancel_probe";
+    let lenta = format!("SELECT pg_sleep(30) AS {marca}");
+    let r = tokio::time::timeout(Duration::from_secs(1), fetch(&c, &lenta)).await;
+    assert!(r.is_err(), "la consulta lenta debía exceder el timeout");
+    c.interrupt();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let otro = connect(&from_env(Kind::Postgres, "TEST_PG")).await.unwrap();
+    let q = format!("SELECT count(*) AS n FROM pg_stat_activity WHERE query LIKE '%{marca}%' AND state = 'active' AND pid <> pg_backend_pid()");
+    let rows = fetch(&otro, &q).await.unwrap();
+    assert_eq!(rows[0]["n"].as_deref(), Some("0"), "la consulta sigue activa en el servidor");
+}
+
+#[tokio::test]
 async fn sqlite_roundtrip_and_missing_file() {
     let d = tempfile::tempdir().unwrap();
     let path = d.path().join("t.db");

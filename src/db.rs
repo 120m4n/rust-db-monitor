@@ -34,7 +34,15 @@ impl Client {
             Client::Oracle(c) => {
                 let _ = c.break_execution();
             }
-            Client::Pg(_) => {}
+            // soltar el future no para la consulta en el servidor: se cancela con una conexión aparte
+            Client::Pg(c) => {
+                let t = c.cancel_token();
+                tokio::spawn(async move {
+                    if let Err(e) = t.cancel_query(NoTls).await {
+                        tracing::warn!("no se pudo cancelar la consulta en postgres: {e}");
+                    }
+                });
+            }
         }
     }
 
@@ -65,7 +73,10 @@ pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
                 .user(&cfg.user)
                 .password(&cfg.password)
                 .dbname(&cfg.dbname)
-                .connect_timeout(timeout);
+                .connect_timeout(timeout)
+                // sin esto, una caída silenciosa de la red tarda ~2 h en notarse (keepalive del SO)
+                .keepalives(true)
+                .keepalives_idle(Duration::from_secs(60));
             // connect_timeout solo cubre el TCP; el arranque/auth puede colgarse con un servidor que no responde
             let (client, conn) = tokio::time::timeout(timeout, pg.connect(NoTls))
                 .await
@@ -92,13 +103,37 @@ pub async fn connect(cfg: &Database) -> anyhow::Result<Client> {
         Kind::Oracle => {
             let (user, pw) = (cfg.user.clone(), cfg.password.clone());
             let addr = format!("{}:{}/{}", cfg.host, cfg.port.unwrap_or(1521), cfg.dbname);
-            let job = tokio::task::spawn_blocking(move || oracle::Connection::connect(user, pw, addr));
+            // un connect colgado no se puede abortar: no lanzar otro hasta que el anterior termine
+            let guard = OracleEnVuelo::tomar().ok_or_else(|| anyhow!("oracle connect anterior aún en curso"))?;
+            let job = tokio::task::spawn_blocking(move || {
+                let _guard = guard; // se libera cuando el hilo termina, aunque el timeout ya haya expirado
+                oracle::Connection::connect(user, pw, addr)
+            });
             let conn = tokio::time::timeout(timeout, job)
                 .await
                 .map_err(|_| anyhow!("oracle connect timed out"))??
                 .context("oracle connect failed")?;
             Ok(Client::Oracle(Arc::new(conn)))
         }
+    }
+}
+
+// ponytail: global; un solo Client por proceso
+static ORACLE_EN_VUELO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Como mucho un `oracle::Connection::connect` bloqueado a la vez: así los reintentos no acumulan hilos.
+pub struct OracleEnVuelo(());
+
+impl OracleEnVuelo {
+    pub fn tomar() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        ORACLE_EN_VUELO.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).ok().map(|_| OracleEnVuelo(()))
+    }
+}
+
+impl Drop for OracleEnVuelo {
+    fn drop(&mut self) {
+        ORACLE_EN_VUELO.store(false, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -171,5 +206,18 @@ pub async fn fetch(client: &Client, sql: &str) -> anyhow::Result<Vec<Row>> {
             })
             .await?
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn un_solo_connect_oracle_en_vuelo() {
+        let g = OracleEnVuelo::tomar().unwrap();
+        assert!(OracleEnVuelo::tomar().is_none());
+        drop(g);
+        assert!(OracleEnVuelo::tomar().is_some());
     }
 }
